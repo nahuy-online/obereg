@@ -1,0 +1,16 @@
+[package]
+name = "obereg-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Desktop harness and benchmark for the Obereg core"
+
+[[bin]]
+name = "obereg-cli"
+path = "src/main.rs"
+
+[dependencies]
+obereg-core = { path = "../obereg-core" }
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "obereg-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "C ABI for the Obereg core (desktop, Swift, and any FFI consumer)"
+
+[lib]
+name = "obereg_ffi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+obereg-core = { path = "../obereg-core" }
+serde_json.workspace = true

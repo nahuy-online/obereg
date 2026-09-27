@@ -1,0 +1,119 @@
+{
+  "schema": "obereg.module-registry/v1",
+  "core_api_version": "0.1.0",
+  "updated": "2026-09-23",
+  "modules": [
+    {
+      "name": "error",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["CoreError", "Result<T>"],
+      "description": "Единый тип ошибок ядра CoreError и псевдоним Result<T> для всех публичных функций."
+    },
+    {
+      "name": "catalog",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["CatalogSource", "LocalCatalogSource", "VideoItem", "default_catalog", "DEMO_CATALOG_JSON"],
+      "description": "Каталог видео: трейт источника CatalogSource, локальная реализация и элемент каталога VideoItem; сетевой источник — следующая реализация того же трейта."
+    },
+    {
+      "name": "config",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["CoreConfig", "TunnelConfig", "UpstreamConfig", "UpstreamKind", "TransportMode", "LogLevel"],
+      "description": "Структуры конфигурации ядра: параметры сессии, туннеля и восходящего узла; JSON-сериализация."
+    },
+    {
+      "name": "journal",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["Journal", "FileJournal", "MemoryJournal", "JournalEvent", "JournalKind"],
+      "description": "Append-only JSONL-журнал событий туннеля и сессии: трейт Journal и файловая/память реализация."
+    },
+    {
+      "name": "state",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["ConnectionState", "StateSnapshot", "StateObserver"],
+      "description": "Конечный автомат соединения, снимок состояния StateSnapshot и трейт наблюдателя StateObserver."
+    },
+    {
+      "name": "transport",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["Transport", "Connection", "DirectTransport", "TunnelTransport", "TransportRouter", "RoutedConnection", "ProbeResult"],
+      "description": "Абстракция транспорта и маршрутизатор Direct/Tunnel с пробой доступности и автооткатом."
+    },
+    {
+      "name": "tunnel",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["TunnelEngine", "LoopbackTunnel", "TunnelHandle", "TunnelStats"],
+      "description": "Движок локальных прокси (SOCKS5 и HTTP CONNECT) с общей абстракцией восходящего узла и дескриптором жизненного цикла."
+    },
+    {
+      "name": "session",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["CoreSession", "TrafficProbe", "catalog_search", "catalog_featured", "catalog_search_json", "local_http_proxy_addr"],
+      "description": "Публичная фасадная сессия CoreSession: жизненный цикл, статус, проба трафика и доступ к каталогу."
+    },
+    {
+      "name": "version",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["CORE_API_VERSION", "CORE_API_MAJOR"],
+      "description": "Константы версии публичного API ядра, доступные и через FFI-слой."
+    },
+    {
+      "name": "ffi-cabi",
+      "status": "ready",
+      "crate": "obereg-ffi",
+      "interfaces": ["obereg_core_new", "obereg_core_free", "obereg_core_version", "obereg_core_start", "obereg_core_stop", "obereg_core_status", "obereg_core_set_transport_mode", "obereg_core_journal_read", "obereg_core_probe_traffic", "obereg_core_catalog_search", "obereg_core_local_proxy_addr", "obereg_core_local_http_proxy_addr", "obereg_core_is_running", "obereg_core_default_config_json", "obereg_core_last_error", "obereg_string_free"],
+      "description": "Ручной C ABI поверх ядра: непрозрачный хэндл, управление жизненным циклом и чтение статуса/журнала."
+    },
+    {
+      "name": "ffi-jni",
+      "status": "ready",
+      "crate": "obereg-jni",
+      "interfaces": ["app.obereg.core.CoreBridge: version/create/free/start/stop/status/setTransportMode/journalJson/catalogSearch/localHttpProxyAddr"],
+      "description": "JNI-обёртка для Android, транслирующая вызовы Kotlin в C ABI ядра."
+    },
+    {
+      "name": "shell-android",
+      "status": "ready",
+      "crate": "apps/android",
+      "interfaces": ["MainActivity", "PlayerActivity", "CatalogActivity", "YouTubeActivity", "CoreBridge", "CoreHolder", "TunnelService"],
+      "description": "Android-оболочка: экран приёмки, каталог, плеер файлов, встроенный плеер YouTube (с маршрутом через HTTP-прокси ядра), JNI-мост и foreground-сервис туннеля."
+    },
+    {
+      "name": "shell-ios-example",
+      "status": "planned",
+      "crate": "apps/ios",
+      "interfaces": ["OberegCore"],
+      "description": "Пример обёртки для iOS поверх C ABI и module map; реализация запланирована."
+    },
+    {
+      "name": "shell-desktop",
+      "status": "planned",
+      "crate": "apps/desktop",
+      "interfaces": [],
+      "description": "ПК-оболочка (Tauri-подобная) с themeable UI вокруг того же API ядра; запланирована."
+    },
+    {
+      "name": "relay",
+      "status": "ready",
+      "crate": "obereg-relay",
+      "interfaces": ["obereg-relay: --listen / --journal / --status-file / --print-config"],
+      "description": "Референсный внешний узел туннеля: SOCKS5-эндпоинт на публичном адресе, журнал, файл статуса и подсказка конфигурации клиента."
+    },
+    {
+      "name": "cli",
+      "status": "ready",
+      "crate": "obereg-cli",
+      "interfaces": ["obereg-cli version|config-default|start|stop|probe|journal|demo|bench"],
+      "description": "Командный харнесс ядра: версия, дефолтный конфиг, жизненный цикл, проба, журнал, демо, бенчмарк."
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: tests
+        run: cargo test --workspace --release
+
+  build-android:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: targets
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: ndk
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+      - name: build cdylib for three ABIs
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 \
+            -o android/app/src/main/jniLibs \
+            build --release -p obereg-jni
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jniLibs
+          path: android/app/src/main/jniLibs/
+
+  android-app:
+    needs: build-android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: fetch jniLibs
+        uses: actions/download-artifact@v4
+        with:
+          name: jniLibs
+          path: android/app/src/main/jniLibs
+      - name: build debug apk
+        shell: bash
+        run: |
+          cd android
+          test -f gradlew || gradle wrapper --gradle-version 8.7
+          ./gradlew :app:assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obereg-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  build-ios:
+    needs: lint
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: targets
+        run: rustup target add aarch64-apple-ios x86_64-apple-ios
+      - name: build universal static library
+        shell: bash
+        run: |
+          cargo build --release -p obereg-ffi --target aarch64-apple-ios
+          cargo build --release -p obereg-ffi --target x86_64-apple-ios
+          lipo -create -output libobereg_ffi.a \
+            target/aarch64-apple-ios/release/libobereg_ffi.a \
+            target/x86_64-apple-ios/release/libobereg_ffi.a
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libobereg_ffi-ios
+          path: libobereg_ffi.a
+
+  build-macos:
+    needs: lint
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: build universal dylib
+        shell: bash
+        run: |
+          cargo build --release -p obereg-ffi --target aarch64-apple-darwin
+          cargo build --release -p obereg-ffi --target x86_64-apple-darwin
+          lipo -create -output libobereg_ffi.dylib \
+            target/aarch64-apple-darwin/release/libobereg_ffi.dylib \
+            target/x86_64-apple-darwin/release/libobereg_ffi.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libobereg_ffi-macos
+          path: libobereg_ffi.dylib
+
+  build-windows:
+    needs: lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build
+        run: cargo build --release -p obereg-ffi -p obereg-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            target/release/obereg_ffi.dll
+            target/release/obereg-cli.exe
+
+  bench:
+    needs: lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: startup benchmark baseline
+        run: cargo run --release -p obereg-cli -- bench --iterations 30 --out bench/baseline.windows-ci.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline
+          path: bench/baseline.windows-ci.json

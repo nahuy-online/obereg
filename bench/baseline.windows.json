@@ -1,0 +1,36 @@
+{
+  "arch": "x86_64",
+  "core_api_version": "0.1.0",
+  "iterations": 30,
+  "measured_at_ms": 1790102394313,
+  "method": "CoreSession::new + start(tunnel: loopback proxy start) + stop; in-memory journal; release build",
+  "metrics": {
+    "session_new_ms": {
+      "max": 0.009,
+      "mean": 0.004,
+      "min": 0.003,
+      "p50": 0.004,
+      "p95": 0.006,
+      "samples": 30
+    },
+    "session_stop_ms": {
+      "max": 0.173,
+      "mean": 0.108,
+      "min": 0.08,
+      "p50": 0.108,
+      "p95": 0.154,
+      "samples": 30
+    },
+    "tunnel_start_ms": {
+      "max": 0.279,
+      "mean": 0.119,
+      "min": 0.077,
+      "p50": 0.109,
+      "p95": 0.276,
+      "samples": 30
+    }
+  },
+  "os": "windows",
+  "schema": "obereg.bench/v1",
+  "warmup_iterations": 1
+}

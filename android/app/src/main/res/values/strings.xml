@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Obereg</string>
+    <string name="channel_tunnel">Туннель Obereg</string>
+    <string name="status_placeholder">состояние: —</string>
+    <string name="action_self_test">Автотест</string>
+    <string name="action_start">Запустить туннель</string>
+    <string name="action_stop">Остановить</string>
+    <string name="action_toggle_mode">Сменить режим direct / tunnel</string>
+    <string name="action_probe">Проверить трафик</string>
+    <string name="action_journal">Журнал</string>
+    <string name="action_clear_log">Очистить лог</string>
+    <string name="action_open_player">Открыть плеер</string>
+    <string name="action_open_catalog">Каталог видео</string>
+    <string name="action_open_youtube">YouTube (встроенный плеер)</string>
+    <string name="youtube_hint">Ссылка YouTube или ID видео</string>
+    <string name="youtube_play">Играть</string>
+    <string name="youtube_back">Назад</string>
+    <string name="youtube_preset_1">Big Buck Bunny</string>
+    <string name="youtube_preset_2">Me at the zoo</string>
+    <string name="youtube_preset_3">Rick Astley</string>
+    <string name="youtube_open_browser">В браузере</string>
+    <string name="youtube_open_app">В приложении YouTube</string>
+    <string name="youtube_status_init">загрузка встроенного плеера…</string>
+    <string name="catalog_hint">Поиск в каталоге</string>
+    <string name="catalog_search">Найти</string>
+    <string name="catalog_loading">загрузка…</string>
+    <string name="journal_hint">filesDir/journal.jsonl</string>
+
+    <string name="player_title">Плеер</string>
+    <string name="player_url_hint">Ссылка на видеофайл (http/https)</string>
+    <string name="player_play">Играть</string>
+    <string name="player_stop">Стоп</string>
+    <string name="player_via_tunnel">Через туннель</string>
+    <string name="player_preset_1">Локальное видео</string>
+    <string name="player_preset_2">Тест 5 с</string>
+    <string name="player_status_idle">туннель не поднят — воспроизведение пойдёт напрямую</string>
+</resources>

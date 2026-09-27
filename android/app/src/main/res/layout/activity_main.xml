@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/logScroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textSize="14sp"
+            android:text="@string/status_placeholder" />
+
+        <Button
+            android:id="@+id/btnOpenCatalog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/action_open_catalog" />
+
+        <Button
+            android:id="@+id/btnOpenYouTube"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_open_youtube" />
+
+        <Button
+            android:id="@+id/btnOpenPlayer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/action_open_player" />
+
+        <Button
+            android:id="@+id/btnSelfTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_self_test" />
+
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_start" />
+
+        <Button
+            android:id="@+id/btnStop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_stop" />
+
+        <Button
+            android:id="@+id/btnMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_toggle_mode" />
+
+        <Button
+            android:id="@+id/btnProbe"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_probe" />
+
+        <Button
+            android:id="@+id/btnJournal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_journal" />
+
+        <Button
+            android:id="@+id/btnClearLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_clear_log" />
+
+        <TextView
+            android:id="@+id/output"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+</ScrollView>

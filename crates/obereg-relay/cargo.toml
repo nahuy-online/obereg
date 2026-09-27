@@ -1,0 +1,15 @@
+[package]
+name = "obereg-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Reference tunnel relay for Obereg: exposes the same SOCKS5 endpoint the app's upstream expects"
+
+[[bin]]
+name = "obereg-relay"
+path = "src/main.rs"
+
+[dependencies]
+obereg-core = { path = "../obereg-core" }
+serde_json.workspace = true

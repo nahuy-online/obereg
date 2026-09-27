@@ -1,0 +1,4 @@
+module OberegCore {
+    header "obereg.h"
+    export *
+}

@@ -1,0 +1,16 @@
+[package]
+name = "obereg-jni"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "JNI bindings exposing the Obereg core to Android (app.obereg.core.CoreBridge)"
+
+[lib]
+name = "obereg_jni"
+crate-type = ["cdylib"]
+
+[dependencies]
+obereg-core = { path = "../obereg-core" }
+serde_json.workspace = true
+jni = "0.21"
