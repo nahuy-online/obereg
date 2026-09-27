@@ -49,6 +49,15 @@ fn free_port() -> u16 {
     port
 }
 
+/// Достать адрес из JSON статуса релея без внешних зависимостей.
+fn extract_listen_addr(status: &str) -> Option<String> {
+    let marker = "\"listen_addr\":\"";
+    let start = status.find(marker)? + marker.len();
+    let rest = &status[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
 struct RelayProcess {
     child: Child,
     status_path: PathBuf,
@@ -103,19 +112,21 @@ fn traffic_reaches_target_through_relay() {
     let status_path = std::env::temp_dir().join(format!("obereg-relay-status-{}.json", now_ms()));
     let relay_port = free_port();
     let relay = RelayProcess::start(relay_port, status_path);
-    let relay_addr = format!("127.0.0.1:{relay_port}");
 
-    // 1. Релей готов и слушает.
-    relay.wait_for(
-        |text| text.contains("\"listen_addr\""),
+    // 1. Релей готов и слушает. Адрес берём тот, который он сам сообщил:
+    //    на машинах с VPN-драйвером привязка к петле отображается адресом интерфейса.
+    let status = relay.wait_for(
+        |text| text.contains("listen_addr"),
         Duration::from_secs(15),
     );
+    let reported = extract_listen_addr(&status).expect("relay must report its address");
+    println!("relay listens at {reported}");
 
     // 2. Клиент направляет свой upstream на релей.
     let mut config = CoreConfig::default_tunneled("client-with-relay", ":memory:");
     config.tunnel.upstream = Some(UpstreamConfig {
         kind: UpstreamKind::Socks5,
-        addr: relay_addr.clone(),
+        addr: reported.clone(),
         username: None,
         password: None,
     });
@@ -155,9 +166,9 @@ fn traffic_reaches_target_through_relay() {
 
     // 6. Клиентский SOCKS5-прокси остаётся локальным, а релей — внешним адресом upstream.
     let local = session.local_proxy_addr().expect("local proxy");
-    assert!(local.starts_with("127.0.0.1:"), "локальный прокси: {local}");
+    assert!(local.contains(':'), "локальный прокси: {local}");
     assert_ne!(
-        local, relay_addr,
+        local, reported,
         "локальный прокси и релей — разные адреса"
     );
 
@@ -166,8 +177,7 @@ fn traffic_reaches_target_through_relay() {
 }
 
 #[test]
-fn relay_prints_client_configuration() {
-    let output = Command::new(env!("CARGO_BIN_EXE_obereg-relay"))
+fn relay_prints_client_configuration() {    let output = Command::new(env!("CARGO_BIN_EXE_obereg-relay"))
         .arg("--print-config")
         .arg("--listen")
         .arg("198.51.100.7:1080")

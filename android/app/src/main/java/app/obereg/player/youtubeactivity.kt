@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -17,38 +18,39 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
+import java.net.URLEncoder
 import java.util.concurrent.Executor
 
 /**
- * Просмотр видео YouTube внутри приложения.
+ * YouTube внутри приложения.
  *
- * Используется официальный встроенный плеер (`/embed/<id>`).
+ * Почему два маршрута: встроенный плеер (`/embed/<id>`) на живом устройстве отвечает
+ * ошибкой 153 — сервис отказывается воспроизводить видео в WebView, и это не связано
+ * с нашим туннелем (ошибка воспроизводится и в режиме напрямую). Поэтому основной режим —
+ * обычный мобильный сайт (`m.youtube.com`), а встраивание осталось как отдельная попытка.
  *
- * Важные детали, которые выяснились на живом устройстве:
- * * прокси WebView — состояние **процессное**: если один раз включить наш прокси и затем
- *   остановить туннель, WebView продолжит ходить на мёртвый адрес и выдаст
- *   `net::ERR_PROXY_CONNECTION_FAILED`. Поэтому маршрут всегда выставляется явно:
- *   либо наш прокси, либо снятие переопределения;
- * * стандартный User-Agent WebView содержит пометку `wv`, из-за чего встроенный плеер
- *   отказывается воспроизводить видео (ошибка 153). Подставляем обычный браузерный UA;
- * * если воспроизведение всё же недоступно, у пользователя есть честные запасные пути:
- *   открыть в системном браузере или в приложении YouTube.
+ * Дополнительно:
+ * * маршрут прокси выставляется явно: наш HTTP-прокси либо снятие переопределения;
+ * * User-Agent обычного браузера вместо WebView-овского;
+ * * поиск и переход внутри сайта — чтобы приложение работало как клиент, а не как одно видео;
+ * * ошибки загрузки и коды ответов видны на экране, а не молча дают чёрный экран.
  */
 class YouTubeActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var urlInput: EditText
+    private lateinit var searchInput: EditText
     private lateinit var statusView: TextView
     private var routeNote: String = ""
     private var currentVideoId: String = ""
+    private var useEmbed: Boolean = false
 
     private val presets = listOf(
         "aqz-KE-bpKQ" to "Big Buck Bunny (Blender)",
         "jNQXAC9IVRw" to "Me at the zoo",
-        "dQw4w9WgXcQ" to "Rick Astley — Never Gonna Give You Up",
     )
 
-    /** Обычный браузерный User-Agent: плеер YouTube не любит пометку `wv` из WebView. */
+    /** Обычный браузерный User-Agent: WebView-овский содержит пометку `wv` и хуже принимается сервисом. */
     private val browserUserAgent =
         "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -59,6 +61,7 @@ class YouTubeActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.youtubeView)
         urlInput = findViewById(R.id.youtubeInput)
+        searchInput = findViewById(R.id.searchInput)
         statusView = findViewById(R.id.youtubeStatus)
 
         webView.settings.apply {
@@ -73,7 +76,7 @@ class YouTubeActivity : AppCompatActivity() {
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
-                render("страница загружена: ${url ?: "—"}")
+                render("загружено: ${url ?: "—"}")
             }
 
             override fun onReceivedError(
@@ -88,6 +91,14 @@ class YouTubeActivity : AppCompatActivity() {
                 }
                 render("ОШИБКА загрузки: $description\n${request?.url ?: ""}")
             }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?,
+            ) {
+                render("ответ сервера: HTTP ${errorResponse?.statusCode ?: 0}\n${request?.url ?: "—"}")
+            }
         }
 
         findViewById<Button>(R.id.btnPlayYoutube).setOnClickListener {
@@ -98,25 +109,49 @@ class YouTubeActivity : AppCompatActivity() {
             }
             openVideo(id)
         }
-        findViewById<Button>(R.id.btnBackToApp).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnEmbedMode).setOnClickListener {
+            if (currentVideoId.isEmpty()) {
+                val id = extractVideoId(urlInput.text.toString().trim())
+                if (id == null) {
+                    render("сначала выберите видео")
+                    return@setOnClickListener
+                }
+                currentVideoId = id
+            }
+            useEmbed = true
+            openVideo(currentVideoId)
+        }
+        findViewById<Button>(R.id.btnSearchYoutube).setOnClickListener {
+            val query = searchInput.text.toString().trim()
+            if (query.isEmpty()) {
+                render("введите поисковый запрос")
+                return@setOnClickListener
+            }
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val url = "https://m.youtube.com/results?search_query=$encoded"
+            render("поиск: $query")
+            webView.loadUrl(url)
+        }
         findViewById<Button>(R.id.btnOpenInBrowser).setOnClickListener {
             openOutside("https://www.youtube.com/watch?v=$currentVideoId")
         }
         findViewById<Button>(R.id.btnOpenInApp).setOnClickListener {
             openOutside("vnd.youtube:$currentVideoId")
         }
-
+        findViewById<Button>(R.id.btnCheckAccess).setOnClickListener {
+            render("проверяю доступ к YouTube из WebView…")
+            webView.loadUrl("https://www.youtube.com/generate_204")
+        }
+        findViewById<Button>(R.id.btnBackToApp).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnPresetYt1).setOnClickListener {
             urlInput.setText(presets[0].first)
+            useEmbed = false
             openVideo(presets[0].first)
         }
         findViewById<Button>(R.id.btnPresetYt2).setOnClickListener {
             urlInput.setText(presets[1].first)
+            useEmbed = false
             openVideo(presets[1].first)
-        }
-        findViewById<Button>(R.id.btnPresetYt3).setOnClickListener {
-            urlInput.setText(presets[2].first)
-            openVideo(presets[2].first)
         }
 
         val incoming = intent?.getStringExtra(EXTRA_VIDEO_ID)
@@ -130,7 +165,6 @@ class YouTubeActivity : AppCompatActivity() {
         super.onResume()
         webView.onResume()
         webView.resumeTimers()
-        // Туннель мог быть остановлен, пока экран был в фоне: маршрут выставляем заново.
         routeNote = applyRoute()
         render("маршрут обновлён")
     }
@@ -149,9 +183,9 @@ class YouTubeActivity : AppCompatActivity() {
     /**
      * Явно выставить маршрут WebView.
      *
-     * Если туннель поднят — ставим наш HTTP CONNECT-прокси. Иначе **снимаем**
-     * переопределение: иначе WebView остался бы с адресом мёртвого прокси
-     * и все запросы падали бы с `ERR_PROXY_CONNECTION_FAILED`.
+     * Если туннель поднят — ставим наш HTTP CONNECT-прокси, иначе **снимаем** переопределение:
+     * без этого WebView остался бы с адресом мёртвого прокси и все запросы падали бы
+     * с `ERR_PROXY_CONNECTION_FAILED`.
      */
     private fun applyRoute(): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
@@ -179,8 +213,13 @@ class YouTubeActivity : AppCompatActivity() {
 
     private fun openVideo(videoId: String) {
         currentVideoId = videoId
-        render("открываю видео $videoId")
-        webView.loadUrl("https://www.youtube.com/embed/$videoId?autoplay=1&playsinline=1&rel=0")
+        val url = if (useEmbed) {
+            "https://www.youtube.com/embed/$videoId?autoplay=1&playsinline=1&rel=0"
+        } else {
+            "https://m.youtube.com/watch?v=$videoId"
+        }
+        render("открываю: $url")
+        webView.loadUrl(url)
     }
 
     /** Запасной путь: отдать ссылку системе — браузеру или приложению YouTube. */
@@ -203,7 +242,7 @@ class YouTubeActivity : AppCompatActivity() {
             appendLine(message)
             if (routeNote.isNotEmpty()) appendLine(routeNote)
             if (status != null) {
-                append("ядро: ${status.state} / ${status.mode} / обслужил соединений: ${status.sessionsServed}")
+                append("ядро: ${status.state} / ${status.mode} / соединений: ${status.sessionsServed}")
             }
         }
     }

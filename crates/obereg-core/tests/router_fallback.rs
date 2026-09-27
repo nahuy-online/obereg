@@ -25,7 +25,7 @@ fn tunnel_failure_falls_back_and_reports_truthful_mode() {
     let router = TransportRouter::new(direct, tunnel, TransportMode::Tunnel);
 
     let routed = router
-        .connect("127.0.0.1", server_addr.port())
+        .connect(&server_addr.ip().to_string(), server_addr.port())
         .expect("fallback must still deliver the connection");
 
     assert_eq!(

@@ -168,7 +168,28 @@ App Store и магазинах для ПК, магазинная оплата.
 4. Собрать Android: `./scripts/build-android.sh`, затем `cd android && ./gradlew :app:assembleDebug`.
 5. Пропущенные или неточные шаги зафиксировать как правку в этом файле.
 
-## 10. Восстановление тулчейна Rust после сбоя
+## 10. Если антивирус ломает сборку
+
+Симптомы, которые уже встречались в этом проекте на живых машинах:
+
+| Симптом | Причина | Что делать |
+|---|---|---|
+| Файлы Rust/сборки оказываются нулевого размера или в карантине | Антивирус принял свежесобранные бинарники за угрозу | Добавить исключения: `%USERPROFILE%\.cargo`, `%USERPROFILE%\.rustup`, `%USERPROFILE%\.gradle`, `%USERPROFILE%\Android\Sdk`, `<репозиторий>\target`, `<репозиторий>\android\app\build` |
+| `Could not connect to the Gradle daemon` | Фаервол/щит антивируса блокирует локальные соединения JVM | Собирать без форка демона: `$env:GRADLE_OPTS="-Xmx2560m"` и `gradle -p android :app:assembleDebug --no-daemon`; в `android/gradle.properties` не задавать `org.gradle.jvmargs` |
+| `Could not connect to Kotlin compile daemon` | То же самое для компилятора Kotlin | Тот же обход: сборка продолжится в основном процессе (видно строку `BUILD SUCCESSFUL`) |
+| Пропали файлы проекта после чистки карантина | Часть файлов удалена антивирусом без восстановления | Держать репозиторий под git (`git init` уже сделан) и сверять `git status`: потеря видна сразу |
+
+Проверка целостности после инцидента:
+
+```powershell
+# нулевые файлы в исходниках — признак вмешательства антивируса
+Get-ChildItem . -Recurse -File | Where-Object { $_.Length -eq 0 -and $_.FullName -notlike '*\target*' }
+cargo build --workspace      # ошибки компиляции укажут на потерянные файлы
+git status --short           # git покажет удалённые и изменённые файлы
+```
+
+
+## 11. Восстановление тулчейна Rust после сбоя
 
 Симптомы: `cargo`/`rustc` не запускаются или сообщают, что компонент «не применим к тулчейну»;
 файлы в `%USERPROFILE%\.cargo\bin` имеют размер 0 байт; `rustup` отсутствует.

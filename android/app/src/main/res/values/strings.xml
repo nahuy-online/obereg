@@ -18,9 +18,13 @@
     <string name="youtube_back">Назад</string>
     <string name="youtube_preset_1">Big Buck Bunny</string>
     <string name="youtube_preset_2">Me at the zoo</string>
-    <string name="youtube_preset_3">Rick Astley</string>
     <string name="youtube_open_browser">В браузере</string>
     <string name="youtube_open_app">В приложении YouTube</string>
+    <string name="youtube_open_site">Сайт YouTube</string>
+    <string name="youtube_check_access">Проверка связи</string>
+    <string name="youtube_embed">Встроенный плеер</string>
+    <string name="youtube_search_hint">Поиск видео в YouTube</string>
+    <string name="youtube_search">Найти</string>
     <string name="youtube_status_init">загрузка встроенного плеера…</string>
     <string name="catalog_hint">Поиск в каталоге</string>
     <string name="catalog_search">Найти</string>
