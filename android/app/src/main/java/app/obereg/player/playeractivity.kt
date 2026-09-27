@@ -13,6 +13,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import okhttp3.OkHttpClient
@@ -165,6 +166,15 @@ class PlayerActivity : AppCompatActivity() {
                                 "всего потоков в ответе — ${result.total}",
                         )
                     }
+                    is ExtractResult.SeparateStreams -> {
+                        currentTitle = "YouTube $videoId"
+                        playSeparate(result.video.url, result.audio.url)
+                        renderStatus(
+                            "свой плеер: сервис отдал видео и звук раздельно — играю вместе " +
+                                "(видео ${result.video.qualityLabel ?: result.video.itag.toString()}, " +
+                                "всего потоков ${result.total})",
+                        )
+                    }
                     is ExtractResult.NoMuxedStream -> renderStatus(
                         "сервис отдал только раздельные потоки (${result.adaptive}): " +
                             "для них нужна склейка — она в следующем шаге, а сейчас откройте экран YouTube",
@@ -173,6 +183,26 @@ class PlayerActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    /** Воспроизведение двух раздельных потоков (видео + звук) одновременно. */
+    private fun playSeparate(videoUrl: String, audioUrl: String) {
+        val proxyAddress = if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
+        val exo = player ?: ExoPlayer.Builder(this).build().also {
+            player = it
+            playerView.player = it
+        }
+        exo.stop()
+        exo.clearMediaItems()
+
+        val factory = DefaultDataSource.Factory(this, httpDataSource(proxyAddress))
+        val videoSource = ProgressiveMediaSource.Factory(factory)
+            .createMediaSource(MediaItem.fromUri(videoUrl))
+        val audioSource = ProgressiveMediaSource.Factory(factory)
+            .createMediaSource(MediaItem.fromUri(audioUrl))
+        exo.setMediaSource(MergingMediaSource(videoSource, audioSource))
+        exo.prepare()
+        exo.playWhenReady = true
     }
 
     private fun stopPlayback() {

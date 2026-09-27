@@ -4,7 +4,9 @@
 //! (`streamingData.formats` — потоки со звуком и видео, `adaptiveFormats` — раздельные),
 //! но ссылки вымышленные. Так проверяется логика, а не доступность сети.
 
-use obereg_core::extract::{analyze_player_response, parse_formats, select_muxed, ExtractOutcome};
+use obereg_core::extract::{
+    analyze_player_response, parse_formats, select_adaptive_pair, select_muxed, ExtractOutcome,
+};
 
 fn response(formats: &str, adaptive: &str) -> String {
     format!(
@@ -55,10 +57,17 @@ fn ignores_video_only_streams_when_muxed_exists() {
 }
 
 #[test]
-fn reports_when_only_adaptive_streams_exist() {
+fn separate_streams_are_used_when_no_muxed_exists() {
+    // Раньше здесь был отказ; теперь ядро отдаёт пару «видео + звук» для склейки на лету.
     let outcome =
         analyze_player_response(&response("", &format!("{VIDEO_ONLY_1080},{AUDIO_ONLY}")));
-    assert_eq!(outcome, ExtractOutcome::NoMuxedStream { adaptive: 2 });
+    match outcome {
+        ExtractOutcome::SeparateStreams { video, audio, .. } => {
+            assert_eq!(video.itag, 137);
+            assert_eq!(audio.itag, 140);
+        }
+        other => panic!("ожидался SeparateStreams, получено {other:?}"),
+    }
 }
 
 #[test]
@@ -105,6 +114,74 @@ fn parses_audio_and_video_flags() {
     assert!(!formats[1].has_video);
     assert!(formats[1].has_audio);
     assert_eq!(formats[1].quality_label, None);
+}
+
+#[test]
+fn reports_when_only_adaptive_streams_exist_without_audio() {
+    // Видео есть, звука нет — собрать воспроизведение не из чего.
+    let outcome = analyze_player_response(&response("", VIDEO_ONLY_1080));
+    assert_eq!(outcome, ExtractOutcome::NoMuxedStream { adaptive: 1 });
+}
+
+#[test]
+fn builds_pair_from_separate_streams() {
+    let outcome =
+        analyze_player_response(&response("", &format!("{VIDEO_ONLY_1080},{AUDIO_ONLY}")));
+    match outcome {
+        ExtractOutcome::SeparateStreams {
+            video,
+            audio,
+            total,
+        } => {
+            assert_eq!(video.itag, 137, "взят видеопоток без звука");
+            assert_eq!(audio.itag, 140, "взят аудиопоток");
+            assert!(!video.has_audio && !audio.has_video);
+            assert_eq!(total, 2);
+        }
+        other => panic!("ожидался SeparateStreams, получено {other:?}"),
+    }
+}
+
+#[test]
+fn pair_prefers_video_within_height_limit() {
+    let video_240 = r#"{"itag":133,"mimeType":"video/mp4","bitrate":200000,"qualityLabel":"240p","url":"https://example.invalid/v/133"}"#;
+    let json = format!("[{video_240},{VIDEO_ONLY_1080},{AUDIO_ONLY}]");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("fixture must parse");
+    let formats = parse_formats(Some(&value)).expect("parse must work");
+    let (video, audio) = select_adaptive_pair(&formats, 720).expect("пара должна быть найдена");
+    assert_eq!(
+        video.height(),
+        240,
+        "из доступных в пределах лимита берём лучший"
+    );
+    assert_eq!(audio.itag, 140);
+}
+
+#[test]
+fn muxed_stream_wins_over_pair() {
+    let outcome = analyze_player_response(&response(
+        MUXED_360,
+        &format!("{VIDEO_ONLY_1080},{AUDIO_ONLY}"),
+    ));
+    assert!(
+        matches!(outcome, ExtractOutcome::Success { .. }),
+        "готовый поток предпочтительнее склейки: {outcome:?}"
+    );
+}
+
+#[test]
+fn separate_streams_serialize_for_bindings() {
+    let outcome =
+        analyze_player_response(&response("", &format!("{VIDEO_ONLY_1080},{AUDIO_ONLY}")));
+    let json = obereg_core::extract::outcome_to_json(&outcome);
+    assert!(
+        json.contains("\"status\":\"separate_streams\""),
+        "json: {json}"
+    );
+    assert!(
+        json.contains("\"video\"") && json.contains("\"audio\""),
+        "json: {json}"
+    );
 }
 
 #[test]

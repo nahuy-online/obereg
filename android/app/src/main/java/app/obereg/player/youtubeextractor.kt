@@ -29,6 +29,13 @@ sealed interface ExtractResult {
     /** Сервис отдал только раздельные потоки: нужна склейка. */
     data class NoMuxedStream(val adaptive: Int) : ExtractResult
 
+    /** Сервис отдал видео и звук раздельно — играем их вместе одним плеером. */
+    data class SeparateStreams(
+        val video: StreamFormat,
+        val audio: StreamFormat,
+        val total: Int,
+    ) : ExtractResult
+
     /** Извлечение недоступно: сеть, отказ сервиса или новый формат ответа. */
     data class Failure(val reason: String) : ExtractResult
 }
@@ -137,22 +144,20 @@ class YouTubeExtractor(
         fun interpret(coreJson: String): ExtractResult {
             val root = runCatching { org.json.JSONObject(coreJson) }.getOrNull()
                 ?: return ExtractResult.Failure("ядро вернуло нечитаемый ответ")
-            val status = root.optString("status")
-            return when (status) {
+            return when (root.optString("status")) {
                 "success" -> {
-                    val format = root.optJSONObject("format")
+                    val format = root.optJSONObject("format")?.let(::toFormat)
                         ?: return ExtractResult.Failure("ядро не вернуло поток")
-                    ExtractResult.Success(
-                        format = StreamFormat(
-                            itag = format.optInt("itag"),
-                            mimeType = format.optString("mime_type"),
-                            url = format.optString("url"),
-                            qualityLabel = format.optString("quality_label")
-                                .takeIf { it.isNotEmpty() && it != "null" },
-                            bitrate = format.optInt("bitrate"),
-                        ),
-                        total = root.optInt("total"),
-                    )
+                    ExtractResult.Success(format, root.optInt("total"))
+                }
+                "separate_streams" -> {
+                    val video = root.optJSONObject("video")?.let(::toFormat)
+                    val audio = root.optJSONObject("audio")?.let(::toFormat)
+                    if (video == null || audio == null) {
+                        ExtractResult.Failure("ядро вернуло неполную пару потоков")
+                    } else {
+                        ExtractResult.SeparateStreams(video, audio, root.optInt("total"))
+                    }
                 }
                 "no_muxed_stream" -> ExtractResult.NoMuxedStream(root.optInt("adaptive"))
                 "refused" -> ExtractResult.Failure("сервис отказал: ${root.optString("reason")}")
@@ -160,5 +165,14 @@ class YouTubeExtractor(
                 else -> ExtractResult.Failure("неожиданный ответ ядра: $coreJson")
             }
         }
+
+        /** Перевести один поток из ответа ядра. */
+        private fun toFormat(json: org.json.JSONObject): StreamFormat = StreamFormat(
+            itag = json.optInt("itag"),
+            mimeType = json.optString("mime_type"),
+            url = json.optString("url"),
+            qualityLabel = json.optString("quality_label").takeIf { it.isNotEmpty() && it != "null" },
+            bitrate = json.optInt("bitrate"),
+        )
     }
 }

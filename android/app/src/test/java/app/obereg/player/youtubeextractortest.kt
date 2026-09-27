@@ -70,6 +70,23 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun mapsCoreSeparateStreams() {
+        val core = """{"status":"separate_streams","total":5,"video":{"itag":137,"mime_type":"video/mp4","url":"https://example.invalid/v/137","quality_label":"1080p","bitrate":4000000},"audio":{"itag":140,"mime_type":"audio/mp4","url":"https://example.invalid/a/140","bitrate":128000}}"""
+        val result = YouTubeExtractor.interpret(core)
+        assertTrue("ожидался SeparateStreams, получено $result", result is ExtractResult.SeparateStreams)
+        val pair = result as ExtractResult.SeparateStreams
+        assertEquals(137, pair.video.itag)
+        assertEquals(140, pair.audio.itag)
+        assertEquals(5, pair.total)
+    }
+
+    @Test
+    fun failsOnIncompleteSeparatePair() {
+        val core = """{"status":"separate_streams","video":{"itag":137,"url":"https://example.invalid/v/137"}}"""
+        assertTrue(YouTubeExtractor.interpret(core) is ExtractResult.Failure)
+    }
+
+    @Test
     fun failsOnUnreadableCoreResponse() {
         assertTrue(YouTubeExtractor.interpret("{не json}") is ExtractResult.Failure)
         assertTrue(YouTubeExtractor.interpret("""{"status":"unknown"}""") is ExtractResult.Failure)

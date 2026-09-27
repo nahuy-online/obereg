@@ -105,8 +105,8 @@
       "name": "extract",
       "status": "ready",
       "crate": "obereg-core",
-      "interfaces": ["analyze_player_response", "parse_formats", "select_muxed", "ExtractOutcome", "StreamFormat", "outcome_to_json"],
-      "description": "Разбор ответа видеосервиса и выбор потока для своего плеера: логика в ядре, сетевой запрос — в оболочке."
+      "interfaces": ["analyze_player_response", "parse_formats", "select_muxed", "select_adaptive_pair", "ExtractOutcome", "StreamFormat", "outcome_to_json"],
+      "description": "Разбор ответа видеосервиса и выбор потока для своего плеера: готовый поток либо пара «видео + звук» для склейки на лету; логика в ядре, сетевой запрос — в оболочке."
     },
     {
       "name": "relay",

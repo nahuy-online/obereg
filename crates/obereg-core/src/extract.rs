@@ -66,6 +66,15 @@ pub enum ExtractOutcome {
         /// Сколько раздельных потоков было в ответе.
         adaptive: usize,
     },
+    /// Сервис отдал раздельно видео и звук — играем их вместе (склейка на лету плеером).
+    SeparateStreams {
+        /// Поток с видео (без звука).
+        video: StreamFormat,
+        /// Поток со звуком (без видео).
+        audio: StreamFormat,
+        /// Сколько всего потоков было в ответе.
+        total: usize,
+    },
     /// Сервис отказал (видео недоступно, ограничение региона и т. п.).
     Refused {
         /// Причина от сервиса.
@@ -146,6 +155,37 @@ pub fn select_muxed(formats: &[StreamFormat], max_height: u32) -> Option<StreamF
         .map(|format| (*format).clone())
 }
 
+/// Выбрать пару «видео без звука» + «звук без видео» для совместного воспроизведения.
+///
+/// Нужна, когда сервис не отдаёт готовый поток: плеер умеет играть две дорожки
+/// одновременно, поэтому внешний муксер не требуется.
+pub fn select_adaptive_pair(
+    formats: &[StreamFormat],
+    max_height: u32,
+) -> Option<(StreamFormat, StreamFormat)> {
+    let video_only = |format: &&StreamFormat| {
+        format.has_video && !format.has_audio && format.mime_type.contains("video/")
+    };
+    let video = formats
+        .iter()
+        .filter(video_only)
+        .filter(|format| format.height() > 0 && format.height() <= max_height)
+        .max_by_key(|format| (format.height(), format.bitrate))
+        .or_else(|| {
+            formats
+                .iter()
+                .filter(video_only)
+                .max_by_key(|format| (format.height(), format.bitrate))
+        })?;
+
+    let audio = formats
+        .iter()
+        .filter(|format| format.has_audio && !format.has_video)
+        .max_by_key(|format| format.bitrate)?;
+
+    Some((video.clone(), audio.clone()))
+}
+
 /// Разобрать ответ сервиса целиком.
 pub fn analyze_player_response(json: &str) -> ExtractOutcome {
     let root: Value = match serde_json::from_str(json) {
@@ -190,8 +230,15 @@ pub fn analyze_player_response(json: &str) -> ExtractOutcome {
             format,
             total: muxed.len() + adaptive.len(),
         },
-        None => ExtractOutcome::NoMuxedStream {
-            adaptive: adaptive.len(),
+        None => match select_adaptive_pair(&adaptive, DEFAULT_MAX_HEIGHT) {
+            Some((video, audio)) => ExtractOutcome::SeparateStreams {
+                video,
+                audio,
+                total: muxed.len() + adaptive.len(),
+            },
+            None => ExtractOutcome::NoMuxedStream {
+                adaptive: adaptive.len(),
+            },
         },
     }
 }
