@@ -57,6 +57,7 @@ class PlayerActivity : AppCompatActivity() {
         urlInput.setText(presets.first())
 
         findViewById<Button>(R.id.btnPlay).setOnClickListener { play(urlInput.text.toString().trim()) }
+        findViewById<Button>(R.id.btnYouTubePlayer).setOnClickListener { playYouTube() }
         findViewById<Button>(R.id.btnStopPlayback).setOnClickListener { stopPlayback() }
         findViewById<Button>(R.id.btnPreset1).setOnClickListener {
             urlInput.setText(presets[0])
@@ -136,6 +137,42 @@ class PlayerActivity : AppCompatActivity() {
         }
         val titleLine = if (currentTitle.isEmpty()) "" else "$currentTitle\n"
         renderStatus("${titleLine}воспроизведение: $route\nисточник: $url")
+    }
+
+    /**
+     * Своё воспроизведение YouTube: извлекаем поток у видеосервиса и отдаём его нашему плееру
+     * (Media3 через SOCKS5-прокси ядра). Если сервис отдаёт только раздельные потоки —
+     * честно сообщаем об этом: для них нужна склейка, её пока нет.
+     */
+    private fun playYouTube() {
+        val raw = urlInput.text.toString().trim()
+        val videoId = YouTubeExtractor.videoIdFrom(raw)
+        if (videoId == null) {
+            renderStatus("это не похоже на ссылку или идентификатор YouTube")
+            return
+        }
+        val proxy = CoreHolder.status().listenAddr
+        renderStatus("извлекаю поток для видео $videoId…")
+        Thread {
+            val result = YouTubeExtractor(proxyAddress = proxy).resolve(videoId)
+            runOnUiThread {
+                when (result) {
+                    is ExtractResult.Success -> {
+                        currentTitle = "YouTube $videoId"
+                        play(result.format.url)
+                        renderStatus(
+                            "свой плеер: поток ${result.format.qualityLabel ?: result.format.itag.toString()}, " +
+                                "всего потоков в ответе — ${result.total}",
+                        )
+                    }
+                    is ExtractResult.NoMuxedStream -> renderStatus(
+                        "сервис отдал только раздельные потоки (${result.adaptive}): " +
+                            "для них нужна склейка — она в следующем шаге, а сейчас откройте экран YouTube",
+                    )
+                    is ExtractResult.Failure -> renderStatus("извлечение не удалось: ${result.reason}")
+                }
+            }
+        }.start()
     }
 
     private fun stopPlayback() {

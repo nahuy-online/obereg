@@ -77,7 +77,7 @@
       "name": "ffi-jni",
       "status": "ready",
       "crate": "obereg-jni",
-      "interfaces": ["app.obereg.core.CoreBridge: version/create/free/start/stop/status/setTransportMode/journalJson/catalogSearch/localHttpProxyAddr"],
+      "interfaces": ["app.obereg.core.CoreBridge: version/create/free/start/stop/status/setTransportMode/journalJson/catalogSearch/localHttpProxyAddr/analyzePlayerResponse"],
       "description": "JNI-обёртка для Android, транслирующая вызовы Kotlin в C ABI ядра."
     },
     {
@@ -100,6 +100,13 @@
       "crate": "apps/desktop",
       "interfaces": [],
       "description": "ПК-оболочка (Tauri-подобная) с themeable UI вокруг того же API ядра; запланирована."
+    },
+    {
+      "name": "extract",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["analyze_player_response", "parse_formats", "select_muxed", "ExtractOutcome", "StreamFormat", "outcome_to_json"],
+      "description": "Разбор ответа видеосервиса и выбор потока для своего плеера: логика в ядре, сетевой запрос — в оболочке."
     },
     {
       "name": "relay",

@@ -192,6 +192,14 @@ object CoreHolder {
         return CoreBridge.httpProxyAddrOrEmpty(handle).takeIf { it.isNotEmpty() }
     }
 
+    /** Разбор ответа видеосервиса силами ядра (логика и её тесты — в ядре). */
+    fun analyzePlayerResponse(playerResponseJson: String): String {
+        if (handle == 0L) {
+            return """{"status":"malformed","reason":"сессия не создана"}"""
+        }
+        return CoreBridge.analyzePlayerResponseJson(handle, playerResponseJson)
+    }
+
     /** Запустить сессию (JSON-ответ ядра). */
     fun start(): String {
         if (handle == 0L) return CoreBridge.errorJson("сессия не создана")

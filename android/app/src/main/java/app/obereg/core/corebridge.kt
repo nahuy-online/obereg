@@ -44,6 +44,7 @@ object CoreBridge {
     private external fun journalJson(handle: Long): String
     private external fun catalogSearch(handle: Long, query: String, limit: Int): String
     private external fun localHttpProxyAddr(handle: Long): String
+    private external fun analyzePlayerResponse(handle: Long, playerResponseJson: String): String
 
     // --- Безопасные обёртки ---
 
@@ -85,6 +86,10 @@ object CoreBridge {
 
     /** Адрес HTTP CONNECT-прокси ядра или пустая строка. */
     fun httpProxyAddrOrEmpty(handle: Long): String = call(handle) { localHttpProxyAddr(handle) }
+
+    /** Разбор ответа видеосервиса силами ядра: выбор потока для своего плеера. */
+    fun analyzePlayerResponseJson(handle: Long, json: String): String =
+        call(handle) { analyzePlayerResponse(handle, json) }
 
     /** JSON-объект ошибки в том же формате, что возвращает ядро. */
     fun errorJson(message: String): String = """{"error":"${message.replace('"', '\'')}"}"""

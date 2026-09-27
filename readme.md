@@ -31,7 +31,7 @@ Windows-скрипты-обёртки: `scripts\check.ps1`, `scripts\build-deskt
 
 | Путь | Что это | Статус |
 |---|---|---|
-| `crates/obereg-core` | Ядро: `error`, `config`, `catalog`, `journal`, `state`, `transport`, `tunnel`, `session`, `version` | готово |
+| `crates/obereg-core` | Ядро: `error`, `config`, `catalog`, `extract`, `journal`, `state`, `transport`, `tunnel`, `session`, `version` | готово |
 | `crates/obereg-ffi` | C ABI (`cdylib` + `staticlib`) и заголовок `include/obereg.h` | готово |
 | `crates/obereg-jni` | JNI-обёртка `app.obereg.core.CoreBridge` для Android | готово |
 | `crates/obereg-cli` | Десктоп-харнесс: `demo`, `bench`, `probe`, `journal` | готово |
@@ -85,6 +85,7 @@ Windows-скрипты-обёртки: `scripts\check.ps1`, `scripts\build-deskt
 | `CoreSession::events(limit) / events_json(limit)` | журнал событий |
 | `CoreSession::catalog_search(query, limit)` | поиск в каталоге видео (источник — точка расширения) |
 | `CoreSession::catalog_search_json(query, limit)` | тот же поиск в форме JSON для биндингов |
+| `extract::analyze_player_response(json)` | разбор ответа видеосервиса и выбор потока для своего плеера |
 | `CoreSession::add_observer(observer)` | подписка на изменения состояния |
 
 ## Проверки

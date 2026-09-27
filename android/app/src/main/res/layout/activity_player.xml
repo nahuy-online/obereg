@@ -42,6 +42,19 @@
             android:text="@string/player_stop" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnYouTubePlayer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="@string/player_youtube_own" />
+    </LinearLayout>
+
     <CheckBox
         android:id="@+id/checkTunnel"
         android:layout_width="match_parent"

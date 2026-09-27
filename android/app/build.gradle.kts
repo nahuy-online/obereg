@@ -49,4 +49,8 @@ dependencies {
 
     // WebView: настройка прокси, чтобы видео YouTube могло идти через встроенный туннель.
     implementation("androidx.webkit:webkit:1.11.0")
+
+    // JVM-проверки логики разбора: junit и настоящий org.json вместо android-заглушки.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

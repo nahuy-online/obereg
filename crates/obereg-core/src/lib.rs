@@ -25,6 +25,7 @@
 pub mod catalog;
 pub mod config;
 pub mod error;
+pub mod extract;
 pub mod journal;
 pub mod session;
 pub mod state;
@@ -35,6 +36,7 @@ pub mod version;
 pub use catalog::{CatalogSource, LocalCatalogSource, VideoItem};
 pub use config::{CoreConfig, TransportMode};
 pub use error::{CoreError, Result};
+pub use extract::{analyze_player_response, ExtractOutcome, StreamFormat};
 pub use journal::{Journal, JournalEvent, JournalKind};
 pub use session::{CoreSession, TrafficProbe};
 pub use state::{ConnectionState, StateSnapshot};

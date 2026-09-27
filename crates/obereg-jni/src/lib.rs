@@ -206,8 +206,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_catalogSearch(
     })
 }
 
-/// `localHttpProxyAddr(handle: Long): String` — адрес HTTP CONNECT-прокси ядра
-/// (пустая строка, если туннель не поднят). Нужен WebView: он умеет только HTTP-прокси.
+/// `localHttpProxyAddr(handle: Long): String` — адрес HTTP CONNECT-прокси ядра/// (пустая строка, если туннель не поднят). Нужен WebView: он умеет только HTTP-прокси.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_localHttpProxyAddr(
     mut env: JNIEnv,
@@ -216,5 +215,24 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_localHttpProxyAddr(
 ) -> jstring {
     with_session(&mut env, handle, |session| {
         Ok(session.local_http_proxy_addr().unwrap_or_default())
+    })
+}
+
+/// `analyzePlayerResponse(handle: Long, json: String): String` — разбор ответа видеосервиса
+/// силами ядра: выбор потока для своего плеера. Логика и её тесты живут в ядре,
+/// оболочка отвечает только за сетевой запрос.
+#[no_mangle]
+pub extern "system" fn Java_app_obereg_core_CoreBridge_analyzePlayerResponse(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    player_response: JString,
+) -> jstring {
+    let Some(json) = rust_string(&mut env, player_response) else {
+        return java_string(&mut env, error_json("player response is null"));
+    };
+    with_session(&mut env, handle, move |_session| {
+        let outcome = obereg_core::extract::analyze_player_response(&json);
+        Ok(obereg_core::extract::outcome_to_json(&outcome))
     })
 }
