@@ -115,6 +115,15 @@ fn default_http_listen_addr() -> String {
     "127.0.0.1:0".to_string()
 }
 
+/// Учётные данные, которые внешний узел требует от клиентов (RFC 1929 / Basic).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TunnelAuth {
+    /// Логин.
+    pub username: String,
+    /// Пароль.
+    pub password: String,
+}
+
 fn default_handshake_timeout_ms() -> u64 {
     5_000
 }
@@ -140,6 +149,10 @@ pub struct TunnelConfig {
     /// Восходящий узел. `null` эквивалентен `kind = "direct"`.
     #[serde(default)]
     pub upstream: Option<UpstreamConfig>,
+    /// Требовать логин и пароль от клиентов. Используется внешним узлом,
+    /// чтобы не превращаться в открытый прокси.
+    #[serde(default)]
+    pub auth: Option<TunnelAuth>,
     /// Таймаут установления соединений, мс.
     #[serde(default = "default_handshake_timeout_ms")]
     pub handshake_timeout_ms: u64,
@@ -155,6 +168,7 @@ impl Default for TunnelConfig {
             http_listen_addr: default_http_listen_addr(),
             mode: TransportMode::Direct,
             upstream: None,
+            auth: None,
             handshake_timeout_ms: default_handshake_timeout_ms(),
             idle_timeout_ms: default_idle_timeout_ms(),
         }
@@ -270,6 +284,13 @@ impl CoreConfig {
             })?;
         if self.tunnel.handshake_timeout_ms == 0 {
             return Err(CoreError::Config("handshake_timeout_ms must be > 0".into()));
+        }
+        if let Some(auth) = &self.tunnel.auth {
+            if auth.username.is_empty() || auth.password.is_empty() {
+                return Err(CoreError::Config(
+                    "tunnel.auth requires both username and password".into(),
+                ));
+            }
         }
         if let Some(up) = &self.tunnel.upstream {
             if up.kind != UpstreamKind::Direct {

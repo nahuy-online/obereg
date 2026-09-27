@@ -35,7 +35,7 @@ Windows-скрипты-обёртки: `scripts\check.ps1`, `scripts\build-deskt
 | `crates/obereg-ffi` | C ABI (`cdylib` + `staticlib`) и заголовок `include/obereg.h` | готово |
 | `crates/obereg-jni` | JNI-обёртка `app.obereg.core.CoreBridge` для Android | готово |
 | `crates/obereg-cli` | Десктоп-харнесс: `demo`, `bench`, `probe`, `journal` | готово |
-| `crates/obereg-relay` | Референсный внешний узел туннеля (SOCKS5-эндпоинт, статус, журнал) | готово |
+| `crates/obereg-relay` | Внешний узел туннеля (SOCKS5-эндпоинт, аутентификация, статус, журнал) | готово |
 | `android/` | Оболочка Android: каталог, плеер (Media3 через туннель), экран приёмки, сервис туннеля | готово |
 | `ios/` | Пример вызова ядра из Swift + module map | пример |
 | `docs/adr/` | ADR-0001…0006: границы, транспорт, туннель, FFI, журнал, версионирование | готово |

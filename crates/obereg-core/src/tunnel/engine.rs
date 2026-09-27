@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::config::{TunnelConfig, UpstreamConfig};
+use crate::config::{TunnelAuth, TunnelConfig, UpstreamConfig};
 use crate::error::{CoreError, Result};
 use crate::journal::{Journal, JournalEvent, JournalKind};
 use crate::transport::socks5;
@@ -84,6 +84,7 @@ enum Acknowledgement {
 /// Параметры обслуживания одного клиента (собраны в структуру, чтобы не плодить аргументы).
 struct ClientContext {
     upstream: Option<UpstreamConfig>,
+    auth: Option<TunnelAuth>,
     handshake_timeout: Duration,
     idle_timeout: Duration,
     stats: Arc<TunnelStats>,
@@ -230,6 +231,7 @@ impl TunnelEngine for LoopbackTunnel {
                 Arc::clone(&clients),
                 Arc::clone(&next_client_id),
                 upstream.clone(),
+                config.auth.clone(),
                 handshake_timeout,
                 idle_timeout,
             )?,
@@ -243,6 +245,7 @@ impl TunnelEngine for LoopbackTunnel {
                 Arc::clone(&clients),
                 next_client_id,
                 upstream,
+                config.auth.clone(),
                 handshake_timeout,
                 idle_timeout,
             )?,
@@ -270,6 +273,7 @@ fn spawn_accept_loop(
     clients: ClientRegistry,
     next_client_id: Arc<AtomicU64>,
     upstream: Option<UpstreamConfig>,
+    auth: Option<TunnelAuth>,
     handshake_timeout: Duration,
     idle_timeout: Duration,
 ) -> Result<JoinHandle<()>> {
@@ -290,6 +294,7 @@ fn spawn_accept_loop(
                 let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
                 let context = ClientContext {
                     upstream: upstream.clone(),
+                    auth: auth.clone(),
                     handshake_timeout,
                     idle_timeout,
                     stats: Arc::clone(&stats),
@@ -348,11 +353,21 @@ fn serve_client(
 
     let (target, port, acknowledgement) = match protocol {
         FrontProtocol::Socks5 => {
-            let request = socks5::socks5_read_request(&stream)?;
+            let request = match context.auth.as_ref() {
+                Some(auth) => socks5::socks5_read_request_authenticated(
+                    &stream,
+                    Some((auth.username.as_str(), auth.password.as_str())),
+                )?,
+                None => socks5::socks5_read_request(&stream)?,
+            };
             (request.target, request.port, Acknowledgement::SocksSuccess)
         }
         FrontProtocol::HttpConnect => {
-            let (host, port) = read_http_connect(&stream)?;
+            let credentials = context
+                .auth
+                .as_ref()
+                .map(|auth| (auth.username.as_str(), auth.password.as_str()));
+            let (host, port) = read_http_connect(&stream, credentials)?;
             (host, port, Acknowledgement::HttpEstablished)
         }
     };
@@ -398,7 +413,10 @@ fn serve_client(
 }
 
 /// Прочитать запрос `CONNECT host:port HTTP/1.1` и вернуть цель.
-fn read_http_connect(stream: &TcpStream) -> Result<(String, u16)> {
+///
+/// Если заданы учётные данные, требуется заголовок `Proxy-Authorization: Basic …`;
+/// иначе отвечаем `407` и закрываем соединение — узел не должен быть открытым прокси.
+fn read_http_connect(stream: &TcpStream, expected: Option<(&str, &str)>) -> Result<(String, u16)> {
     let mut reader = stream;
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 512];
@@ -422,6 +440,38 @@ fn read_http_connect(stream: &TcpStream) -> Result<(String, u16)> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let target = parts.next().unwrap_or_default().to_string();
+
+    if let Some((user, pass)) = expected {
+        let encoded = super::upstream::base64_encode(format!("{user}:{pass}").as_bytes());
+        let provided = text
+            .lines()
+            .find(|line| {
+                line.to_ascii_lowercase()
+                    .starts_with("proxy-authorization:")
+            })
+            .map(|line| {
+                line.split_once(':')
+                    .map(|(_, value)| value.trim())
+                    .unwrap_or_default()
+            })
+            .map(|value| {
+                value
+                    .strip_prefix("Basic ")
+                    .or_else(|| value.strip_prefix("basic "))
+                    .unwrap_or(value)
+                    .to_string()
+            });
+        let ok = provided.as_deref() == Some(encoded.as_str());
+        if !ok {
+            let mut writer = stream;
+            let _ = writer.write_all(
+                b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"obereg\"\r\nProxy-Agent: obereg\r\n\r\n",
+            );
+            return Err(CoreError::Tunnel(
+                "http proxy: missing or invalid proxy credentials".into(),
+            ));
+        }
+    }
 
     if !method.eq_ignore_ascii_case("CONNECT") {
         return Err(CoreError::Tunnel(format!(

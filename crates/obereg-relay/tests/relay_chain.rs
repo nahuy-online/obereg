@@ -115,10 +115,7 @@ fn traffic_reaches_target_through_relay() {
 
     // 1. Релей готов и слушает. Адрес берём тот, который он сам сообщил:
     //    на машинах с VPN-драйвером привязка к петле отображается адресом интерфейса.
-    let status = relay.wait_for(
-        |text| text.contains("listen_addr"),
-        Duration::from_secs(15),
-    );
+    let status = relay.wait_for(|text| text.contains("listen_addr"), Duration::from_secs(15));
     let reported = extract_listen_addr(&status).expect("relay must report its address");
     println!("relay listens at {reported}");
 
@@ -167,17 +164,15 @@ fn traffic_reaches_target_through_relay() {
     // 6. Клиентский SOCKS5-прокси остаётся локальным, а релей — внешним адресом upstream.
     let local = session.local_proxy_addr().expect("local proxy");
     assert!(local.contains(':'), "локальный прокси: {local}");
-    assert_ne!(
-        local, reported,
-        "локальный прокси и релей — разные адреса"
-    );
+    assert_ne!(local, reported, "локальный прокси и релей — разные адреса");
 
     session.stop().expect("session must stop");
     drop(relay);
 }
 
 #[test]
-fn relay_prints_client_configuration() {    let output = Command::new(env!("CARGO_BIN_EXE_obereg-relay"))
+fn relay_prints_client_configuration() {
+    let output = Command::new(env!("CARGO_BIN_EXE_obereg-relay"))
         .arg("--print-config")
         .arg("--listen")
         .arg("198.51.100.7:1080")

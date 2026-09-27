@@ -73,7 +73,10 @@ fn http_connect_tunnel_carries_requests() {
         "порт HTTP-прокси должен быть назначен, получено {http_proxy}"
     );
     let socks_proxy = session.local_proxy_addr().expect("socks proxy must exist");
-    assert_ne!(socks_proxy, http_proxy, "SOCKS5- и HTTP-прокси — разные листенеры");
+    assert_ne!(
+        socks_proxy, http_proxy,
+        "SOCKS5- и HTTP-прокси — разные листенеры"
+    );
     println!("socks5: {socks_proxy}, http: {http_proxy}");
 
     // 1. Устанавливаем туннель через HTTP CONNECT — так делает WebView.

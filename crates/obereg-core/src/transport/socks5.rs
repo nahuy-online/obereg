@@ -191,11 +191,22 @@ pub(crate) struct Socks5Request {
     pub port: u16,
 }
 
-/// Прочитать запрос SOCKS5 от клиента, ответить на приветствие.
+/// Прочитать запрос SOCKS5 от клиента без аутентификации (локальный прокси приложения).
 ///
 /// Возвращает ошибку, если клиент не поддержал метод без аутентификации
 /// (ответ `0xFF` уже отправлен) или если запрос не является `CONNECT`.
 pub(crate) fn socks5_read_request(stream: &TcpStream) -> Result<Socks5Request> {
+    socks5_read_request_authenticated(stream, None)
+}
+
+/// Прочитать запрос SOCKS5 с опциональной проверкой логина и пароля (RFC 1929).
+///
+/// Нужна внешнему узлу: открытый прокси в интернете — это приглашение для чужих людей
+/// гонять через него трафик. Если `expected` задан, клиент обязан пройти USERPASS-проверку.
+pub(crate) fn socks5_read_request_authenticated(
+    stream: &TcpStream,
+    expected: Option<(&str, &str)>,
+) -> Result<Socks5Request> {
     let mut writer = stream;
     let mut reader = stream;
 
@@ -223,17 +234,60 @@ pub(crate) fn socks5_read_request(stream: &TcpStream) -> Result<Socks5Request> {
         .read_exact(&mut methods)
         .map_err(|e| CoreError::Transport(format!("socks5 server: read methods: {e}")))?;
 
-    if !methods.contains(&METHOD_NO_AUTH) {
+    let required = if expected.is_some() {
+        METHOD_USERPASS
+    } else {
+        METHOD_NO_AUTH
+    };
+    if !methods.contains(&required) {
         writer
             .write_all(&[SOCKS5_VERSION, METHOD_NONE_ACCEPTABLE])
             .map_err(|e| CoreError::Transport(format!("socks5 server: write method reply: {e}")))?;
-        return Err(CoreError::Transport(
-            "socks5 server: client does not support no-auth method".into(),
-        ));
+        return Err(CoreError::Transport(format!(
+            "socks5 server: client does not support the required method {required:#04x}"
+        )));
     }
     writer
-        .write_all(&[SOCKS5_VERSION, METHOD_NO_AUTH])
+        .write_all(&[SOCKS5_VERSION, required])
         .map_err(|e| CoreError::Transport(format!("socks5 server: write method reply: {e}")))?;
+
+    if let Some((expected_user, expected_pass)) = expected {
+        // RFC 1929: [0x01, len(user), user, len(pass), pass] → [0x01, status]
+        let mut sub = [0_u8; 2];
+        reader
+            .read_exact(&mut sub)
+            .map_err(|e| CoreError::Transport(format!("socks5 server: read auth header: {e}")))?;
+        if sub[0] != 0x01 {
+            let _ = writer.write_all(&[0x01, 0x01]);
+            return Err(CoreError::Transport(
+                "socks5 server: unsupported authentication subnegotiation".into(),
+            ));
+        }
+        let mut user = vec![0_u8; sub[1] as usize];
+        reader
+            .read_exact(&mut user)
+            .map_err(|e| CoreError::Transport(format!("socks5 server: read username: {e}")))?;
+        let mut pass_len = [0_u8; 1];
+        reader.read_exact(&mut pass_len).map_err(|e| {
+            CoreError::Transport(format!("socks5 server: read password length: {e}"))
+        })?;
+        let mut pass = vec![0_u8; pass_len[0] as usize];
+        reader
+            .read_exact(&mut pass)
+            .map_err(|e| CoreError::Transport(format!("socks5 server: read password: {e}")))?;
+
+        let same_user = user.as_slice() == expected_user.as_bytes();
+        let same_pass = pass.as_slice() == expected_pass.as_bytes();
+        if !(same_user && same_pass) {
+            let _ = writer.write_all(&[0x01, 0x01]);
+            return Err(CoreError::Transport(
+                "socks5 server: invalid credentials".into(),
+            ));
+        }
+        writer
+            .write_all(&[0x01, 0x00])
+            .map_err(|e| CoreError::Transport(format!("socks5 server: write auth reply: {e}")))?;
+    }
 
     let mut request_head = [0_u8; 4];
     reader

@@ -23,7 +23,7 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use obereg_core::config::{CoreConfig, TransportMode, TunnelConfig};
+use obereg_core::config::{CoreConfig, TransportMode, TunnelAuth, TunnelConfig};
 use obereg_core::session::CoreSession;
 
 fn main() -> ExitCode {
@@ -31,7 +31,10 @@ fn main() -> ExitCode {
 
     if args.iter().any(|arg| arg == "--print-config") {
         let listen = flag(&args, "--listen").unwrap_or_else(|| "127.0.0.1:1080".to_string());
-        println!("{}", client_config_hint(&listen));
+        let auth = flag(&args, "--user")
+            .zip(flag(&args, "--password"))
+            .map(|(username, password)| TunnelAuth { username, password });
+        println!("{}", client_config_hint(&listen, auth));
         return ExitCode::SUCCESS;
     }
 
@@ -48,17 +51,33 @@ fn run(args: &[String]) -> Result<(), String> {
     let listen = flag(args, "--listen").unwrap_or_else(|| "127.0.0.1:1080".to_string());
     let journal = flag(args, "--journal").unwrap_or_else(|| ":memory:".to_string());
     let status_file = flag(args, "--status-file");
+    let user = flag(args, "--user");
+    let password = flag(args, "--password");
+    if user.is_some() != password.is_some() {
+        return Err("--user и --password задаются вместе".to_string());
+    }
 
     let mut config = CoreConfig::default_tunneled("relay", journal);
+    let handshake_timeout_ms = config.tunnel.handshake_timeout_ms;
+    let idle_timeout_ms = clamp_idle_minutes(config.tunnel.idle_timeout_ms);
     config.tunnel = TunnelConfig {
         listen_addr: listen.clone(),
         http_listen_addr: "127.0.0.1:0".to_string(),
         mode: TransportMode::Tunnel,
         upstream: None, // релей выпускает трафик напрямую со своей стороны
-        handshake_timeout_ms: config.tunnel.handshake_timeout_ms,
-        idle_timeout_ms: clamp_idle_minutes(config.tunnel.idle_timeout_ms),
+        auth: user
+            .clone()
+            .zip(password.clone())
+            .map(|(username, password)| TunnelAuth { username, password }),
+        handshake_timeout_ms,
+        idle_timeout_ms,
     };
 
+    let auth_username = config
+        .tunnel
+        .auth
+        .as_ref()
+        .map(|auth| auth.username.clone());
     let session = CoreSession::new(config).map_err(|err| err.to_string())?;
     let snapshot = session.start().map_err(|err| err.to_string())?;
 
@@ -68,6 +87,12 @@ fn run(args: &[String]) -> Result<(), String> {
     println!("listen: {socks_addr}");
     println!("state: {} / {}", snapshot.state, snapshot.mode);
     println!("client upstream: socks5://{socks_addr}");
+    match &auth_username {
+        Some(user) => println!("auth: требуется (логин {user})"),
+        None => println!(
+            "auth: выключена — узел открыт; для публичного адреса задайте --user и --password"
+        ),
+    }
     if let Some(path) = &session.journal_path() {
         println!("journal: {path}");
     }
@@ -100,7 +125,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     args.get(index + 1).cloned()
 }
 
-fn client_config_hint(listen: &str) -> String {
+fn client_config_hint(listen: &str, auth: Option<TunnelAuth>) -> String {
     serde_json::json!({
         "config_version": 1,
         "device_id": "client-device",
@@ -114,6 +139,8 @@ fn client_config_hint(listen: &str) -> String {
             "upstream": {
                 "kind": "socks5",
                 "addr": listen,
+                "username": auth.as_ref().map(|a| a.username.clone()),
+                "password": auth.as_ref().map(|a| a.password.clone()),
             },
             "handshake_timeout_ms": 5000,
             "idle_timeout_ms": 30000,
