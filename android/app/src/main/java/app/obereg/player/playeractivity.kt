@@ -72,6 +72,9 @@ class PlayerActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnPlay).setOnClickListener { play(urlInput.text.toString().trim()) }
         findViewById<Button>(R.id.btnYouTubePlayer).setOnClickListener { playYouTube() }
+        findViewById<Button>(R.id.btnCheckLogin).setOnClickListener {
+            renderStatus("проверка входа: ${PlayerApi.loginStateLabel(webViewCookies())}")
+        }
         findViewById<Button>(R.id.btnStopPlayback).setOnClickListener { stopPlayback() }
         findViewById<Button>(R.id.btnPreset1).setOnClickListener {
             urlInput.setText(presets[0])
@@ -210,7 +213,13 @@ class PlayerActivity : AppCompatActivity() {
             runOnUiThread {
                 val first = outcome.usable.firstOrNull()
                 if (first == null) {
-                    renderStatus("извлечение не удалось: ${outcome.notes.joinToString(" | ")}")
+                    val cookies = webViewCookies()
+                    val hint = if (!PlayerApi.hasLoginCookies(cookies)) {
+                        " — войдите в видеосервис на экране YouTube и повторите: проверка «не бот» обычно снимается входом"
+                    } else {
+                        ""
+                    }
+                    renderStatus("извлечение не удалось: ${outcome.notes.joinToString(" | ")}$hint")
                     return@runOnUiThread
                 }
                 currentTitle = "YouTube $videoId"

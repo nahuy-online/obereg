@@ -127,6 +127,32 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun loginStateFollowsAuthorizationCookies() {
+        assertTrue(
+            "SAPISID — признак входа",
+            PlayerApi.hasLoginCookies("VISITOR_INFO1_LIVE=x; SAPISID=abc; YSC=y"),
+        )
+        assertTrue(
+            "защищённые идентификаторы — тоже признак входа",
+            PlayerApi.hasLoginCookies("__Secure-3PSID=abc"),
+        )
+        assertFalse(
+            "без авторизационных cookie входа нет",
+            PlayerApi.hasLoginCookies("VISITOR_INFO1_LIVE=x; YSC=y"),
+        )
+        assertFalse("пустая строка — входа нет", PlayerApi.hasLoginCookies(""))
+        assertEquals(
+            "сообщение о входе",
+            "вход выполнен — cookie авторизации на месте",
+            PlayerApi.loginStateLabel("SAPISID=abc"),
+        )
+        assertTrue(
+            "без cookie — подсказка открыть экран",
+            PlayerApi.loginStateLabel(null).contains("ещё не открывали"),
+        )
+    }
+
+    @Test
     fun mediaHeadersRepeatIssuingClient() {
         // Адрес потока выдаётся конкретному клиенту: запрос с другим агентом сервис отбивает
         // (в плеере это выглядит как «неверный код ответа»), поэтому агент и источник обязательны.

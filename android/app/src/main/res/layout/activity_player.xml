@@ -55,6 +55,13 @@
             android:text="@string/player_youtube_own" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnCheckLogin"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/player_check_login" />
+
     <TextView
         android:id="@+id/playerStatus"
         android:layout_width="match_parent"

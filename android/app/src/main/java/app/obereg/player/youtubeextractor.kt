@@ -242,6 +242,23 @@ object PlayerApi {
         return unique
     }
 
+    /** Нужен ли вход: признаки авторизации в cookie встроенного браузера. */
+    fun hasLoginCookies(cookies: String?): Boolean {
+        if (cookies.isNullOrBlank()) return false
+        val markers = listOf("SAPISID", "__Secure-1PSID", "__Secure-3PSID", "LOGIN_INFO")
+        return markers.any { marker -> cookies.contains(marker) }
+    }
+
+    /** Описание состояния входа — для строки статуса. */
+    fun loginStateLabel(cookies: String?): String = when {
+        cookies.isNullOrBlank() ->
+            "cookie нет: экран видеосервиса ещё не открывали"
+        hasLoginCookies(cookies) ->
+            "вход выполнен — cookie авторизации на месте"
+        else ->
+            "вход не выполнен: cookie есть, но авторизации среди них нет"
+    }
+
     /** Проставить в результате агента того клиента, который его выдал. */
     fun withAgent(result: ExtractResult, agent: String): ExtractResult = when (result) {
         is ExtractResult.Success -> result.copy(clientUserAgent = agent)

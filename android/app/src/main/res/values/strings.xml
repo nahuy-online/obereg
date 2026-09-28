@@ -37,6 +37,7 @@
     <string name="player_stop">Стоп</string>
     <string name="player_via_tunnel">Через туннель</string>
     <string name="player_youtube_own">YouTube: свой плеер (извлечение потока)</string>
+    <string name="player_check_login">Проверить вход в видеосервис</string>
     <string name="player_preset_1">Локальное видео</string>
     <string name="player_preset_2">Тест 5 с</string>
     <string name="player_status_idle">туннель не поднят — воспроизведение пойдёт напрямую</string>
