@@ -259,6 +259,13 @@ object PlayerApi {
             "вход не выполнен: cookie есть, но авторизации среди них нет"
     }
 
+    /** Короткая сводка пробы ссылки на поток: код и собственный ответ сервиса. */
+    fun probeSummary(code: Int, body: String): String {
+        val flat = body.replace(Regex("\\s+"), " ").trim()
+        val short = if (flat.length <= 160) flat else flat.take(160) + "…"
+        return "HTTP $code" + if (short.isEmpty()) " (пустой ответ)" else ": $short"
+    }
+
     /** Человекочитаемая причина любого непригодного исхода — без рискованных приведений типа. */
     fun reasonOf(result: ExtractResult): String = when (result) {
         is ExtractResult.Failure -> result.reason

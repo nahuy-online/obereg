@@ -127,6 +127,16 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun probeSummaryShowsServiceReason() {
+        // «403» сам по себе не говорит ничего: причину сервис пишет в теле ответа.
+        assertEquals("HTTP 200: ok", PlayerApi.probeSummary(200, "  ok  "))
+        assertEquals("HTTP 403 (пустой ответ)", PlayerApi.probeSummary(403, ""))
+        val long = PlayerApi.probeSummary(403, "a".repeat(400))
+        assertTrue("длинный ответ обрезается: ${long.length}", long.length <= 172)
+        assertTrue(long.startsWith("HTTP 403: a"))
+    }
+
+    @Test
     fun reasonOfHandlesEveryOutcome() {
         // Регрессия: приведение к «отказ» валило приложение вылетом,
         // когда непригодный исход был «только раздельные потоки».

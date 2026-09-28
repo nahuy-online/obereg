@@ -54,6 +54,10 @@ class PlayerActivity : AppCompatActivity() {
     /** Что делать при ошибке воспроизведения (перебор источников). */
     private var onPlaybackFailure: (() -> Boolean)? = null
 
+    /** Последняя отданная плееру ссылка и её заголовки — нужны для пробы при отказе. */
+    private var currentStreamUrl: String? = null
+    private var currentStreamHeaders: Map<String, String> = emptyMap()
+
     private val presets = listOf(
         "asset:///sample.mp4",
         "https://download.samplelib.com/mp4/sample-5s.mp4",
@@ -141,6 +145,10 @@ class PlayerActivity : AppCompatActivity() {
                         "воспроизведение не удалось: ${error.errorCodeName}" +
                             if (cause.isNullOrBlank()) "" else " — $cause",
                     )
+                    // Если сервис отказал по коду — спрашиваем у него самого причину.
+                    if (error.errorCodeName == "ERROR_CODE_IO_BAD_HTTP_STATUS") {
+                        probeCurrentStream()
+                    }
                 } else {
                     renderPanel()
                 }
@@ -191,6 +199,8 @@ class PlayerActivity : AppCompatActivity() {
         exo.stop()
         exo.clearMediaItems()
         onPlaybackFailure = onFailure
+        currentStreamUrl = if (local) null else url
+        currentStreamHeaders = headers
 
         val mediaSource = buildMediaSource(url, proxyAddress, headers)
         exo.setMediaSource(mediaSource)
@@ -313,6 +323,8 @@ class PlayerActivity : AppCompatActivity() {
         exo.stop()
         exo.clearMediaItems()
         onPlaybackFailure = onFailure
+        currentStreamUrl = videoUrl
+        currentStreamHeaders = headers
 
         val factory = DefaultDataSource.Factory(this, httpDataSource(proxyAddress, headers))
         val videoSource = ProgressiveMediaSource.Factory(factory)
@@ -369,6 +381,42 @@ class PlayerActivity : AppCompatActivity() {
     private fun webViewCookies(): String? = runCatching {
         android.webkit.CookieManager.getInstance().getCookie("https://www.youtube.com/")
     }.getOrNull()
+
+    /**
+     * Проба ссылки на поток при отказе: спрашиваем у сервиса причину его же словами.
+     *
+     * Номер кода мало о чём говорит («403» — это и требование токена, и регион, и подпись),
+     * а в теле ответа сервис обычно пишет причину открытым текстом.
+     */
+    private fun probeCurrentStream() {
+        val url = currentStreamUrl ?: return
+        val headers = currentStreamHeaders
+        val proxyAddress = if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
+        Thread {
+            val summary = try {
+                val builder = OkHttpClient.Builder()
+                    .connectTimeout(java.time.Duration.ofSeconds(15))
+                    .readTimeout(java.time.Duration.ofSeconds(20))
+                if (proxyAddress != null) {
+                    val parts = proxyAddress.split(":")
+                    if (parts.size == 2) {
+                        builder.proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress(parts[0], parts[1].toInt())))
+                    }
+                }
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("Range", "bytes=0-1023")
+                    .apply { headers.forEach { (name, value) -> header(name, value) } }
+                    .build()
+                builder.build().newCall(request).execute().use { response ->
+                    PlayerApi.probeSummary(response.code, response.body?.string().orEmpty())
+                }
+            } catch (error: Exception) {
+                "проба не удалась: ${error.message?.take(120)}"
+            }
+            runOnUiThread { renderStatus("проверка ссылки: $summary") }
+        }.start()
+    }
 
     /** Убрать клавиатуру, чтобы она не закрывала строку статуса. */
     private fun hideKeyboard() {
