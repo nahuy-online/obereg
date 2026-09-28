@@ -149,6 +149,13 @@
         android:textSize="12sp"
         android:text="@string/youtube_copy_report" />
 
+    <Button
+        android:id="@+id/btnBookmark"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/youtube_bookmark" />
+
     <CheckBox
         android:id="@+id/checkYtTunnel"
         android:layout_width="match_parent"

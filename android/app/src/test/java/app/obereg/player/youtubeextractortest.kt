@@ -396,4 +396,62 @@ class YouTubeExtractorTest {
         assertTrue(YouTubeExtractor.interpret("{не json}") is ExtractResult.Failure)
         assertTrue(YouTubeExtractor.interpret("""{"status":"unknown"}""") is ExtractResult.Failure)
     }
+
+    @Test
+    fun libraryAddsNewestFirst() {
+        var items = LibraryCodec.addItem(emptyList(), LibraryItem("a", "A", "video", 1))
+        items = LibraryCodec.addItem(items, LibraryItem("b", "B", "video", 2))
+        assertEquals("b", items.first().id)
+        assertEquals(2, items.size)
+    }
+
+    @Test
+    fun libraryMovesRepeatToTopWithoutGrowing() {
+        var items = LibraryCodec.addItem(emptyList(), LibraryItem("a", "A", "video", 1))
+        items = LibraryCodec.addItem(items, LibraryItem("b", "B", "video", 2))
+        items = LibraryCodec.addItem(items, LibraryItem("a", "A", "video", 3))
+        assertEquals("повторов быть не должно", 2, items.size)
+        assertEquals("a", items.first().id)
+        assertEquals(3L, items.first().addedAt)
+    }
+
+    @Test
+    fun libraryLimitsSize() {
+        var items = emptyList<LibraryItem>()
+        for (index in 1..10) {
+            items = LibraryCodec.addItem(
+                items,
+                LibraryItem("id$index", "t", "video", index.toLong()),
+                max = 5,
+            )
+        }
+        assertEquals(5, items.size)
+        assertEquals("id10", items.first().id)
+        assertFalse("старое вытесняется", items.any { it.id == "id5" })
+    }
+
+    @Test
+    fun librarySurvivesRoundTrip() {
+        val items = listOf(
+            LibraryItem("dQw4w9WgXcQ", "видео", "video", 42),
+            LibraryItem("котики", "котики", "search", 43),
+        )
+        assertEquals(items, LibraryCodec.decode(LibraryCodec.encode(items)))
+        assertTrue("пустое хранилище", LibraryCodec.decode("").isEmpty())
+        assertTrue("испорченное хранилище", LibraryCodec.decode("{не массив}").isEmpty())
+        assertTrue("запись без идентификатора отбрасывается", LibraryCodec.decode("""[{"title":"без id"}]""").isEmpty())
+    }
+
+    @Test
+    fun libraryRemovesAndFindsByKind() {
+        val items = listOf(
+            LibraryItem("a", "A", "video", 1),
+            LibraryItem("a", "A", "search", 2),
+        )
+        assertTrue(LibraryCodec.contains(items, "a", "video"))
+        assertEquals("удаляется только нужный вид", 1, LibraryCodec.removeItem(items, "a", "video").size)
+        assertEquals(2, LibraryCodec.removeItem(items, "a", "audio").size)
+    }
+
+
 }

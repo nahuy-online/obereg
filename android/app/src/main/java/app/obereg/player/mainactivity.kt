@@ -69,6 +69,12 @@ class MainActivity : AppCompatActivity() {
                 startActivity(android.content.Intent(this, YouTubeActivity::class.java))
             }
         }
+        findViewById<Button>(R.id.btnOpenLibrary).setOnClickListener {
+            log("нажато: библиотека (история и закладки)")
+            safe("открытие библиотеки") {
+                startActivity(android.content.Intent(this, LibraryActivity::class.java))
+            }
+        }
         findViewById<Button>(R.id.btnOpenPlayer).setOnClickListener {
             log("нажато: открыть плеер")
             safe("открытие плеера") {

@@ -202,6 +202,7 @@ class YouTubeActivity : AppCompatActivity() {
                 render("введите поисковый запрос")
                 return@setOnClickListener
             }
+            VideoStore.addSearch(this, query)
             val encoded = URLEncoder.encode(query, "UTF-8")
             val url = "https://m.youtube.com/results?search_query=$encoded"
             loadWithFreshRoute(url)
@@ -229,6 +230,7 @@ class YouTubeActivity : AppCompatActivity() {
             startActivity(intent)
             render("передал пойманный поток в свой плеер")
         }
+        findViewById<Button>(R.id.btnBookmark).setOnClickListener { toggleBookmark() }
         findViewById<Button>(R.id.btnCopyReport).setOnClickListener {
             val status = runCatching { CoreHolder.status() }.getOrNull()
             val header = buildString {
@@ -265,6 +267,13 @@ class YouTubeActivity : AppCompatActivity() {
             urlInput.setText(presets[1].first)
             useEmbed = false
             openVideo(presets[1].first)
+        }
+
+        val incomingQuery = intent?.getStringExtra(EXTRA_QUERY)
+        if (!incomingQuery.isNullOrEmpty()) {
+            searchInput.setText(incomingQuery)
+            findViewById<Button>(R.id.btnSearchYoutube).performClick()
+            return
         }
 
         val incoming = intent?.getStringExtra(EXTRA_VIDEO_ID)
@@ -370,6 +379,21 @@ class YouTubeActivity : AppCompatActivity() {
         }
     }
 
+    /** Закладка для текущего видео: одна кнопка — поставить или снять. */
+    private fun toggleBookmark() {
+        val id = currentVideoId
+        if (id.isEmpty()) {
+            render("сначала выберите видео")
+            return
+        }
+        val added = VideoStore.toggleBookmark(
+            this,
+            id,
+            urlInput.text.toString().trim().ifBlank { id },
+        )
+        DiagLog.add("закладка: " + (if (added) "добавлена" else "снята") + " (" + id + ")")
+        render(if (added) "добавил в закладки: " + id else "убрал из закладок: " + id)
+    }
     private fun openVideo(videoId: String) {
         currentVideoId = videoId
         val url = if (useEmbed) {
@@ -437,5 +461,6 @@ class YouTubeActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_VIDEO_ID = "obereg.youtube.videoId"
+        const val EXTRA_QUERY = "obereg.youtube.query"
     }
 }

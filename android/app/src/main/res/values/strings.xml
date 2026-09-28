@@ -41,6 +41,14 @@
     <string name="player_open_youtube_screen">Экран YouTube (рабочий путь)</string>
     <string name="youtube_play_captured">Играть в своём плеере (поток со страницы)</string>
     <string name="youtube_copy_report">Скопировать отчёт для разработчика</string>
+    <string name="library_mode_history">История</string>
+    <string name="library_mode_bookmarks">Закладки</string>
+    <string name="library_mode_searches">Поиски</string>
+    <string name="library_clear">Очистить</string>
+    <string name="library_back">Назад</string>
+    <string name="library_status_idle">библиотека: всё хранится только на устройстве</string>
+    <string name="youtube_bookmark">★ В закладки / из закладок</string>
+    <string name="action_open_library">Библиотека (история и закладки)</string>
     <string name="youtube_via_our_tunnel">Через наш туннель (для этого экрана)</string>
     <string name="player_preset_1">Локальное видео</string>
     <string name="player_preset_2">Тест 5 с</string>
