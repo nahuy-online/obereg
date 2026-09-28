@@ -414,7 +414,10 @@ class PlayerActivity : AppCompatActivity() {
             } catch (error: Exception) {
                 "проба не удалась: ${error.message?.take(120)}"
             }
-            runOnUiThread { renderStatus("проверка ссылки (${routeLabel(proxyAddress)}): $summary") }
+            val report = exitAddressReport(proxyAddress)
+            runOnUiThread {
+                renderStatus("проверка ссылки (${routeLabel(proxyAddress)}): $summary; $report")
+            }
         }.start()
     }
 
@@ -431,6 +434,41 @@ class PlayerActivity : AppCompatActivity() {
     /** Подпись текущего маршрута для отчёта. */
     private fun routeLabel(proxyAddress: String?): String =
         if (proxyAddress == null) "напрямую" else "через туннель ($proxyAddress)"
+
+    /**
+     * Проверка адреса выхода: два запроса — если адреса разные, ссылка на поток обречена.
+     *
+     * Ссылка выдаётся под тот адрес, с которого пошёл запрос извлечения. Если туннель
+     * на каждом соединении выходит с разного адреса, видео не отдадут никогда — и это
+     * видно сразу по двум числам.
+     */
+    private fun exitAddressReport(proxyAddress: String?): String {
+        fun once(): String? = try {
+            val builder = OkHttpClient.Builder()
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .readTimeout(java.time.Duration.ofSeconds(10))
+            if (proxyAddress != null) {
+                val parts = proxyAddress.split(":")
+                if (parts.size == 2) {
+                    builder.proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress(parts[0], parts[1].toInt())))
+                }
+            }
+            val request = okhttp3.Request.Builder().url("https://api.ipify.org").build()
+            builder.build().newCall(request).execute().use { response ->
+                if (!response.isSuccessful) null else response.body?.string()?.trim()
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+        val first = once()
+        val second = once()
+        return when {
+            first == null || second == null -> "адрес выхода определить не удалось"
+            first == second -> "адрес выхода $first (стабилен)"
+            else -> "ВНИМАНИЕ: адрес выхода меняется ($first и $second) — ссылка выдаётся под один, а запрашивается с другого"
+        }
+    }
 
     /** Убрать клавиатуру, чтобы она не закрывала строку статуса. */
     private fun hideKeyboard() {

@@ -32,7 +32,15 @@ class TunnelService : Service() {
             }
             else -> startTunnel()
         }
-        return START_STICKY
+        // ВАЖНО: не START_STICKY — иначе Android поднимает службу заново после закрытия
+        // приложения, и уведомление о туннеле остаётся висеть навсегда.
+        return START_NOT_STICKY
+    }
+
+    /** Приложение убрали из списка недавних — туннель больше не нужен. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopTunnel()
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun startTunnel() {
@@ -65,7 +73,14 @@ class TunnelService : Service() {
     }
 
     override fun onDestroy() {
+        val wasRunning = running
         running = false
+        // Уведомление не должно висеть после остановки службы.
+        getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        if (wasRunning) {
+            // Туннель не живёт без приложения.
+            runCatching { CoreHolder.release() }
+        }
         super.onDestroy()
     }
 
