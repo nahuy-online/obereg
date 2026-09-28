@@ -40,6 +40,7 @@
     <string name="player_check_login">Проверить вход в видеосервис</string>
     <string name="player_open_youtube_screen">Экран YouTube (рабочий путь)</string>
     <string name="youtube_play_captured">Играть в своём плеере (поток со страницы)</string>
+    <string name="youtube_via_our_tunnel">Через наш туннель (для этого экрана)</string>
     <string name="player_preset_1">Локальное видео</string>
     <string name="player_preset_2">Тест 5 с</string>
     <string name="player_status_idle">туннель не поднят — воспроизведение пойдёт напрямую</string>

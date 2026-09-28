@@ -12,6 +12,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -41,6 +42,7 @@ class YouTubeActivity : AppCompatActivity() {
     private lateinit var urlInput: EditText
     private lateinit var searchInput: EditText
     private lateinit var statusView: TextView
+    private lateinit var tunnelCheck: CheckBox
 
     /** Поток, пойманный у встроенного браузера (уже с подтверждением сеанса). */
     private var capturedVideo: String? = null
@@ -70,6 +72,11 @@ class YouTubeActivity : AppCompatActivity() {
         urlInput = findViewById(R.id.youtubeInput)
         searchInput = findViewById(R.id.searchInput)
         statusView = findViewById(R.id.youtubeStatus)
+        tunnelCheck = findViewById(R.id.checkYtTunnel)
+        tunnelCheck.setOnCheckedChangeListener { _, _ ->
+            routeNote = applyRoute()
+            render("маршрут экрана обновлён")
+        }
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -248,15 +255,22 @@ class YouTubeActivity : AppCompatActivity() {
         }
         val executor = Executor { command -> command.run() }
         val controller = ProxyController.getInstance()
-        val address = CoreHolder.httpProxyAddr()
+        // Маршрут для этого экрана — выбор пользователя: без галочки браузер идёт напрямую
+        // (через системный VPN, если он поднят). Наш туннель для браузера труднее: медиа-потоки
+        // живут долго, и именно на них возникают обрывы, если включить его принудительно.
+        val address = if (tunnelCheck.isChecked) CoreHolder.httpProxyAddr() else null
         return try {
             if (address != null) {
                 val config = ProxyConfig.Builder().addProxyRule(address).build()
                 controller.setProxyOverride(config, executor) { /* готово */ }
-                "маршрут: через туннель ($address)"
+                "маршрут: через наш туннель ($address)"
             } else {
                 controller.clearProxyOverride(executor) { /* готово */ }
-                "маршрут: напрямую (прокси туннеля снят)"
+                if (tunnelCheck.isChecked) {
+                    "маршрут: напрямую (туннель не поднят — на главном экране есть кнопка запуска)"
+                } else {
+                    "маршрут: напрямую (системный VPN, если включён)"
+                }
             }
         } catch (error: Throwable) {
             "не удалось выставить маршрут: ${error.message} — идём напрямую"

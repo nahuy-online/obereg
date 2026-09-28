@@ -142,6 +142,13 @@
         android:textSize="12sp"
         android:text="@string/youtube_play_captured" />
 
+    <CheckBox
+        android:id="@+id/checkYtTunnel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/youtube_via_our_tunnel" />
+
     <TextView
         android:id="@+id/youtubeStatus"
         android:layout_width="match_parent"
