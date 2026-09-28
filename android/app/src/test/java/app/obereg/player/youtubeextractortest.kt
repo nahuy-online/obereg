@@ -127,6 +127,19 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun onlyPlayableOutcomesCountAsUsable() {
+        // Регрессия: «только раздельные потоки» ошибочно считалось пригодным исходом,
+        // из-за чего попытка могла закончиться молчанием вместо понятного сообщения.
+        val format = StreamFormat(18, "video/mp4", "https://example.invalid/a", "360p", 500000)
+        assertTrue(ExtractResult.Success(format, 1).isUsable)
+        assertTrue(
+            ExtractResult.SeparateStreams(format, format, 2).isUsable,
+        )
+        assertFalse("без звуковой дорожки играть нечего", ExtractResult.NoMuxedStream(3).isUsable)
+        assertFalse(ExtractResult.Failure("нет").isUsable)
+    }
+
+    @Test
     fun loginStateFollowsAuthorizationCookies() {
         assertTrue(
             "SAPISID — признак входа",

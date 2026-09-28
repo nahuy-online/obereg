@@ -44,9 +44,9 @@ sealed interface ExtractResult {
     /** Извлечение недоступно: сеть, отказ сервиса или новый формат ответа. */
     data class Failure(val reason: String) : ExtractResult
 
-    /** Плееру можно отдавать только успешные исходы. */
+    /** Плееру можно отдавать только то, что реально играется. */
     val isUsable: Boolean
-        get() = this !is Failure
+        get() = this is Success || this is SeparateStreams
 }
 
 /**
@@ -368,15 +368,47 @@ class YouTubeExtractor(
         }
 
         if (page != null) {
+            // Первая строка отчёта — что именно пришло со страницы: без этого не понять,
+            // где именно стоит стена (согласие, проверка «не бот», пустая страница).
+            notes += "страница: ${page.length} символов, cookie: " +
+                if (cookieHeader() != null) "есть" else "нет"
+
             val playerResponse = PlayerApi.extractPlayerResponse(page)
             if (playerResponse == null) {
-                notes += "на странице нет данных плеера"
+                notes += "ответа плеера на странице нет"
             } else {
                 val result = interpret(CoreHolder.analyzePlayerResponse(playerResponse))
                 if (result.isUsable) {
                     usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
                 } else {
-                    notes += "страница: ${(result as ExtractResult.Failure).reason}"
+                    notes += "ответ плеера: ${(result as ExtractResult.Failure).reason}"
+                }
+            }
+
+            // Второй заход: мобильная страница — иногда отдаёт другой ответ, чем обычная.
+            if (usable.isEmpty()) {
+                val mobile = when (
+                    val fetched = fetch(
+                        "https://m.youtube.com/watch?v=$videoId",
+                        "Mozilla/5.0 (Linux; Android 12; SM-S908B) AppleWebKit/537.36 " +
+                            "(KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
+                    )
+                ) {
+                    is Fetch.Failed -> null.also { notes += "мобильная страница: ${fetched.reason}" }
+                    is Fetch.Ok -> fetched.text
+                }
+                if (mobile != null) {
+                    val mobileResponse = PlayerApi.extractPlayerResponse(mobile)
+                    if (mobileResponse == null) {
+                        notes += "мобильная страница: ${mobile.length} символов, ответа плеера нет"
+                    } else {
+                        val result = interpret(CoreHolder.analyzePlayerResponse(mobileResponse))
+                        if (result.isUsable) {
+                            usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
+                        } else {
+                            notes += "мобильная страница: ${(result as ExtractResult.Failure).reason}"
+                        }
+                    }
                 }
             }
 
