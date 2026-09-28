@@ -45,6 +45,9 @@ class YouTubeActivity : AppCompatActivity() {
     /** Поток, пойманный у встроенного браузера (уже с подтверждением сеанса). */
     private var capturedVideo: String? = null
     private var capturedAudio: String? = null
+
+    /** Сколько раз браузер обращался к медиасерверу — видно, работает ли перехват. */
+    private var mediaRequests: Int = 0
     private var routeNote: String = ""
     private var currentVideoId: String = ""
     private var useEmbed: Boolean = false
@@ -92,10 +95,13 @@ class YouTubeActivity : AppCompatActivity() {
                 request: WebResourceRequest?,
             ): WebResourceResponse? {
                 val url = request?.url?.toString().orEmpty()
+                if (PlayerApi.looksLikeStream(url)) {
+                    mediaRequests++
+                }
                 when (PlayerApi.streamKind(url)) {
                     "video" -> {
                         capturedVideo = PlayerApi.streamUrlForPlayer(url)
-                        render("пойман видеопоток — можно играть в своём плеере")
+                        render("пойман видеопоток (обращений к медиасерверу: $mediaRequests)")
                     }
                     "audio" -> {
                         capturedAudio = PlayerApi.streamUrlForPlayer(url)
@@ -158,6 +164,7 @@ class YouTubeActivity : AppCompatActivity() {
             }
             val encoded = URLEncoder.encode(query, "UTF-8")
             val url = "https://m.youtube.com/results?search_query=$encoded"
+            routeNote = applyRoute()
             render("поиск: $query")
             webView.loadUrl(url)
         }
@@ -168,6 +175,7 @@ class YouTubeActivity : AppCompatActivity() {
             openOutside("vnd.youtube:$currentVideoId")
         }
         findViewById<Button>(R.id.btnCheckAccess).setOnClickListener {
+            routeNote = applyRoute()
             render("проверяю доступ к YouTube из WebView…")
             webView.loadUrl("https://www.youtube.com/generate_204")
         }
@@ -262,6 +270,10 @@ class YouTubeActivity : AppCompatActivity() {
         } else {
             "https://m.youtube.com/watch?v=$videoId"
         }
+        // Маршрут обновляем перед каждой загрузкой: порт туннеля меняется при каждом запуске,
+        // и старая настройка прокси увела бы браузер на мёртвый порт
+        // (отсюда ERR_CONNECTION_CLOSED и TIMED_OUT).
+        routeNote = applyRoute()
         render("открываю: $url")
         webView.loadUrl(url)
     }
@@ -288,6 +300,8 @@ class YouTubeActivity : AppCompatActivity() {
             if (status != null) {
                 appendLine("ядро: ${status.state} / ${status.mode} / соединений: ${status.sessionsServed}")
             }
+            appendLine("перехват: обращений к медиасерверу $mediaRequests" +
+                if (capturedVideo == null) "" else ", поток пойман")
             // Подсказка: исходы извлечения видны на экране плеера, а не здесь — это разные экраны.
             append("свой плеер: экран «Открыть плеер» → кнопка «YouTube: свой плеер»")
         }
