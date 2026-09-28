@@ -1,6 +1,8 @@
 package app.obereg.player
 
+import android.content.Context
 import android.os.Bundle
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -90,6 +92,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun play(url: String) {
+        hideKeyboard()
         if (url.isEmpty()) {
             renderStatus("укажите ссылку на видеофайл")
             return
@@ -146,6 +149,7 @@ class PlayerActivity : AppCompatActivity() {
      * честно сообщаем об этом: для них нужна склейка, её пока нет.
      */
     private fun playYouTube() {
+        hideKeyboard()
         val raw = urlInput.text.toString().trim()
         val videoId = YouTubeExtractor.videoIdFrom(raw)
         if (videoId == null) {
@@ -229,6 +233,12 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         return OkHttpDataSource.Factory(clientBuilder.build())
+    }
+
+    /** Убрать клавиатуру, чтобы она не закрывала строку статуса. */
+    private fun hideKeyboard() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        imm.hideSoftInputFromWindow(urlInput.windowToken, 0)
     }
 
     private fun renderStatus(message: String) {

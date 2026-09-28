@@ -55,6 +55,19 @@
             android:text="@string/player_youtube_own" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/playerStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="#1A808080"
+        android:fontFamily="monospace"
+        android:minHeight="44dp"
+        android:padding="8dp"
+        android:textIsSelectable="true"
+        android:textSize="12sp"
+        android:text="@string/player_status_idle" />
+
     <CheckBox
         android:id="@+id/checkTunnel"
         android:layout_width="match_parent"
@@ -81,13 +94,5 @@
             android:layout_weight="1"
             android:text="@string/player_preset_2" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/playerStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:textSize="12sp"
-        android:text="@string/player_status_idle" />
 
 </LinearLayout>
