@@ -170,6 +170,12 @@ class PlayerActivity : AppCompatActivity() {
                     ) {
                         probeCurrentStream()
                     }
+                    val hint = PlayerApi.playbackHint(error.errorCodeName)
+                    if (hint.isNotEmpty()) {
+                        statusMessage = statusMessage + hint
+                        renderPanel()
+                        DiagLog.add("подсказка по ошибке: $hint")
+                    }
                 } else {
                     renderPanel()
                 }

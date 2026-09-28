@@ -127,6 +127,17 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun playbackHintExplainsServiceRefusal() {
+        // Код ошибки сам по себе ничего не говорит пользователю — подсказка говорит.
+        val http = PlayerApi.playbackHint("ERROR_CODE_IO_BAD_HTTP_STATUS")
+        assertTrue("подсказка про отказ сервиса: $http", http.contains("подтверждением клиента"))
+        assertTrue("ведёт на рабочий путь", http.contains("Экран YouTube"))
+        val container = PlayerApi.playbackHint("ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED")
+        assertTrue("подсказка про служебный формат: $container", container.contains("UMP"))
+        assertTrue("для прочих ошибок молчим", PlayerApi.playbackHint("ERROR_CODE_UNSPECIFIED").isEmpty())
+    }
+
+    @Test
     fun fingerprintDistinguishesMediaFromPages() {
         // «Не распознан контейнер» одинаково выглядит и при WebM, и при HTML вместо видео.
         val webm = byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte(), 0x01, 0x00)
