@@ -282,9 +282,11 @@ object PlayerApi {
     /** Что это за поток: «video», «audio» или ничего. */
     fun streamKind(url: String): String? = when {
         !looksLikeStream(url) -> null
-        url.contains("mime=video") -> "video"
         url.contains("mime=audio") -> "audio"
-        else -> null
+        // Запросы к медиасерверу бывают и без параметра mime — такие считаем видео:
+        // раньше из-за строгой проверки они не попадали в перехват (на устройстве
+        // было видно 12 обращений и ни одного пойманного потока).
+        else -> "video"
     }
 
     /**

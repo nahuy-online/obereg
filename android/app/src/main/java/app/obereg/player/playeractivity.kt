@@ -156,6 +156,7 @@ class PlayerActivity : AppCompatActivity() {
             override fun onPlayerError(error: PlaybackException) {
                 val cause = error.cause?.message?.take(140)
                 lastPlayerEvent = "ОШИБКА ${error.errorCodeName}: ${error.message}"
+                DiagLog.add("воспроизведение: ${error.errorCodeName}${cause?.let { " ($it)" } ?: ""}")
                 val advanced = onPlaybackFailure?.invoke() ?: false
                 if (!advanced) {
                     renderStatus(
@@ -267,6 +268,17 @@ class PlayerActivity : AppCompatActivity() {
             } ?: return@Thread
             runOnUiThread {
                 val first = outcome.usable.firstOrNull()
+                DiagLog.add(
+                    "извлечение: пригодных ${outcome.usable.size}; заметки: ${outcome.notes.joinToString(" | ").take(300)}",
+                )
+                outcome.usable.forEachIndexed { index, variant ->
+                    val url = when (variant) {
+                        is ExtractResult.Success -> variant.format.url
+                        is ExtractResult.SeparateStreams -> "${variant.video.url.take(120)} | ${variant.audio.url.take(120)}"
+                        else -> "?"
+                    }
+                    DiagLog.add("вариант ${index + 1}: $url")
+                }
                 if (first == null) {
                     val cookies = webViewCookies()
                     val hint = if (!PlayerApi.hasLoginCookies(cookies)) {
@@ -297,6 +309,7 @@ class PlayerActivity : AppCompatActivity() {
                     PlayerApi.mediaHeaders(variant.clientUserAgent, webViewCookies()),
                     onFailure = { fallBackToNextVariant() },
                 )
+                DiagLog.add("играю вариант: ${variant.format.url.take(180)}")
                 val quality = variant.format.qualityLabel ?: variant.format.itag.toString()
                 renderStatus(
                     "свой плеер: поток $quality, всего потоков в ответе — ${variant.total}" +
@@ -433,6 +446,7 @@ class PlayerActivity : AppCompatActivity() {
             }
             val report = exitAddressReport(proxyAddress)
             runOnUiThread {
+                DiagLog.add("проба ссылки: $summary")
                 renderStatus("проверка ссылки (${routeLabel(proxyAddress)}): $summary; $report")
             }
         }.start()

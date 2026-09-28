@@ -142,6 +142,13 @@
         android:textSize="12sp"
         android:text="@string/youtube_play_captured" />
 
+    <Button
+        android:id="@+id/btnCopyReport"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/youtube_copy_report" />
+
     <CheckBox
         android:id="@+id/checkYtTunnel"
         android:layout_width="match_parent"

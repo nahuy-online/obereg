@@ -53,6 +53,7 @@ $compilerJars = $compilerJars | Select-Object -Unique
 $sources = @(
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\YouTubeExtractor.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\CoreHolder.kt"),
+    (Join-Path $repo "android\app\src\main\java\app\obereg\player\DiagLog.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\core\CoreBridge.kt"),
     (Join-Path $repo "android\app\src\test\java\app\obereg\player\YouTubeExtractorTest.kt")
 )

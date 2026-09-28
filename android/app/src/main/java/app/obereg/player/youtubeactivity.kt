@@ -1,5 +1,7 @@
 package app.obereg.player
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -111,10 +113,13 @@ class YouTubeActivity : AppCompatActivity() {
                 val url = request?.url?.toString().orEmpty()
                 if (PlayerApi.looksLikeStream(url)) {
                     mediaRequests++
+                    // Пишем сам адрес: без него не понять, почему поток не классифицируется.
+                    DiagLog.add("медиа-запрос #$mediaRequests: ${url.take(220)}")
                 }
                 when (PlayerApi.streamKind(url)) {
                     "video" -> {
                         capturedVideo = PlayerApi.streamUrlForPlayer(url)
+                        DiagLog.add("пойман видеопоток (обращений: $mediaRequests)")
                         render("пойман видеопоток (обращений к медиасерверу: $mediaRequests)")
                     }
                     "audio" -> {
@@ -142,10 +147,12 @@ class YouTubeActivity : AppCompatActivity() {
                 // не открылось (канал не пускает), идём через наш туннель; и наоборот.
                 // Одна авто-попытка на загрузку, чтобы не крутиться в петле.
                 val isMainDocument = request?.isForMainFrame ?: false
+                DiagLog.add("ошибка загрузки: $description (главный документ: $isMainDocument)")
                 if (isMainDocument && !retryWithOtherRoute && currentNavigationUrl.isNotEmpty()) {
                     retryWithOtherRoute = true
                     val flipped = !lastRouteTunnel
                     routeNote = applyRouteUsing(flipped)
+                    DiagLog.add("пробую другой маршрут: ${if (flipped) "туннель" else "напрямую"}")
                     render(
                         "страница не загрузилась ($description) — пробую " +
                             if (flipped) "через наш туннель" else "напрямую",
@@ -209,10 +216,7 @@ class YouTubeActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnPlayCaptured).setOnClickListener {
             val video = capturedVideo
             if (video == null) {
-                render(
-                    "потока пока нет: откройте видео на этом экране и дайте ему начать играть, " +
-                        "затем нажмите эту кнопку",
-                )
+                tryJsCapture()
                 return@setOnClickListener
             }
             val intent = Intent(this, PlayerActivity::class.java)
@@ -220,6 +224,32 @@ class YouTubeActivity : AppCompatActivity() {
             capturedAudio?.let { intent.putExtra(PlayerActivity.EXTRA_STREAM_AUDIO, it) }
             startActivity(intent)
             render("передал пойманный поток в свой плеер")
+        }
+        findViewById<Button>(R.id.btnCopyReport).setOnClickListener {
+            val status = runCatching { CoreHolder.status() }.getOrNull()
+            val header = buildString {
+                appendLine("Obereg · отчёт диагностики")
+                appendLine(
+                    "время: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+                        .format(java.util.Date()),
+                )
+                appendLine("маршрут экрана: ${if (lastRouteTunnel) "через наш туннель" else "напрямую"}")
+                appendLine(
+                    "перехват: обращений $mediaRequests, поток " +
+                        (if (capturedVideo == null) "не пойман" else "пойман"),
+                )
+                if (status != null) {
+                    appendLine("ядро: ${status.state} / ${status.mode} / прокси ${status.listenAddr ?: "нет"}")
+                }
+                appendLine("--- журнал ---")
+            }
+            val report = header + DiagLog.dump()
+            runCatching {
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText("Obereg отчёт", report))
+            }
+            DiagLog.add("отчёт скопирован (${report.length} символов)")
+            render("отчёт скопирован (${report.length} символов) — вставьте его в чат разработчику")
         }
         findViewById<Button>(R.id.btnBackToApp).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnPresetYt1).setOnClickListener {
@@ -283,6 +313,7 @@ class YouTubeActivity : AppCompatActivity() {
         // (через системный VPN, если он поднят). Наш туннель для браузера труднее: медиа-потоки
         // живут долго, и именно на них возникают обрывы, если включить его принудительно.
         val address = if (wantTunnel) CoreHolder.httpProxyAddr() else null
+        DiagLog.add("маршрут экрана: ${if (wantTunnel) "туннель" else "напрямую"}, прокси=${address ?: "нет"}")
         return try {
             if (address != null) {
                 val config = ProxyConfig.Builder().addProxyRule(address).build()
@@ -298,6 +329,40 @@ class YouTubeActivity : AppCompatActivity() {
             }
         } catch (error: Throwable) {
             "не удалось выставить маршрут: ${error.message} — идём напрямую"
+        }
+    }
+
+    /**
+     * Запасной способ поимки: спросить у страницы элемент видео.
+     *
+     * Если страница играет поток напрямую — адрес будет в элементе. Если собирает кусками
+     * (MSE) — увидим это и честно скажем: прямой адрес недоступен, остаётся перехват.
+     */
+    private fun tryJsCapture() {
+        webView.evaluateJavascript(
+            "(function(){var v=document.querySelector('video');" +
+                "if(!v)return 'NO_VIDEO';" +
+                "return (v.currentSrc||v.src||'');})()",
+        ) { raw ->
+            val src = raw.orEmpty().trim('"', ' ')
+            when {
+                src.startsWith("http") && PlayerApi.looksLikeStream(src) -> {
+                    capturedVideo = PlayerApi.streamUrlForPlayer(src)
+                    DiagLog.add("поток взят из элемента видео: ${src.take(220)}")
+                    render("поток найден в плеере страницы — нажмите кнопку ещё раз")
+                }
+                src.startsWith("blob:") -> {
+                    DiagLog.add("страница собирает поток кусками (blob): прямой адрес недоступен")
+                    render(
+                        "страница собирает поток кусками (blob) — прямой адрес не отдаётся; " +
+                            "перехваченных обращений: $mediaRequests",
+                    )
+                }
+                else -> {
+                    DiagLog.add("в элементе видео нет прямого адреса: ${src.take(80)}")
+                    render("потока пока нет: откройте видео, дайте ему играть (обращений: $mediaRequests)")
+                }
+            }
         }
     }
 

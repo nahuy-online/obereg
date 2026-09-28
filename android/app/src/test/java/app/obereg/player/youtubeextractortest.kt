@@ -127,6 +127,25 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun streamWithoutMimeIsTreatedAsVideo() {
+        // Регрессия: на устройстве было 12 обращений к медиасерверу и ни одного пойманного
+        // потока — строгое требование mime отсекало запросы без этого параметра.
+        val capture = "https://rr4---sn-x.googlevideo.com/videoplayback?expire=177&itag=18&id=o-A&pl=24"
+        assertEquals("video", PlayerApi.streamKind(capture))
+        assertTrue(PlayerApi.looksLikeStream(capture))
+    }
+
+    @Test
+    fun diagLogKeepsOrderAndTrimsOverflow() {
+        val before = DiagLog.size()
+        DiagLog.add("строка один\nс переносом")
+        val dump = DiagLog.dump()
+        assertTrue("запись попала в журнал", dump.contains("строка один"))
+        assertTrue("перенос схлопнут", !dump.contains("строка один\n"))
+        assertTrue("число записей растёт", DiagLog.size() > before)
+    }
+
+    @Test
     fun detectsStreamUrlsFromBrowser() {
         val capture = "https://rr3---sn-abc.googlevideo.com/videoplayback?mime=video%2Fmp4&range=0-65536&itag=137"
         assertTrue("поток должен распознаваться", PlayerApi.looksLikeStream(capture))
