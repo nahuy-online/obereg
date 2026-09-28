@@ -135,6 +135,10 @@ class YouTubeExtractorTest {
         assertEquals("https://www.youtube.com/", headers["Referer"])
         assertEquals("https://www.youtube.com", headers["Origin"])
         assertTrue("без агента заголовок не добавляется", !PlayerApi.mediaHeaders("").containsKey("User-Agent"))
+        // Ссылка выдаётся сеансу: cookie должны идти и в запрос видео, иначе сервис отвечает 403.
+        assertEquals("сеанс=cookie", PlayerApi.mediaHeaders("UA", "сеанс=cookie")["Cookie"])
+        assertTrue("пустые cookie не добавляются", !PlayerApi.mediaHeaders("UA", "  ").containsKey("Cookie"))
+        assertTrue("без cookie заголовка нет", !PlayerApi.mediaHeaders("UA").containsKey("Cookie"))
     }
 
     @Test

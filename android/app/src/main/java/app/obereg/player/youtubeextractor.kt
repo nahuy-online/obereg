@@ -208,11 +208,11 @@ object PlayerApi {
     /**
      * Заголовки для запроса самого видеофайла.
      *
-     * Адрес потока выдаётся конкретному клиенту: если запросить его с другим агентом
-     * или без источника, сервис отвечает ошибкой (в Media3 это «неверный код ответа»),
-     * поэтому повторяем агента выдачи и добавляем источник.
+     * Адрес потока выдаётся конкретному клиенту и его сеансу: если запросить его с другим
+     * агентом, без источника или без cookie сеанса, сервис отвечает отказом
+     * (в Media3 это «неверный код ответа», обычная причина — 403).
      */
-    fun mediaHeaders(clientUserAgent: String): Map<String, String> {
+    fun mediaHeaders(clientUserAgent: String, cookies: String? = null): Map<String, String> {
         val headers = mutableMapOf(
             "Referer" to "https://www.youtube.com/",
             "Origin" to "https://www.youtube.com",
@@ -220,6 +220,9 @@ object PlayerApi {
         )
         if (clientUserAgent.isNotBlank()) {
             headers["User-Agent"] = clientUserAgent
+        }
+        if (!cookies.isNullOrBlank()) {
+            headers["Cookie"] = cookies
         }
         return headers
     }

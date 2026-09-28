@@ -227,7 +227,7 @@ class PlayerActivity : AppCompatActivity() {
             is ExtractResult.Success -> {
                 play(
                     variant.format.url,
-                    PlayerApi.mediaHeaders(variant.clientUserAgent),
+                    PlayerApi.mediaHeaders(variant.clientUserAgent, webViewCookies()),
                     onFailure = { fallBackToNextVariant() },
                 )
                 val quality = variant.format.qualityLabel ?: variant.format.itag.toString()
@@ -240,7 +240,7 @@ class PlayerActivity : AppCompatActivity() {
                 playSeparate(
                     variant.video.url,
                     variant.audio.url,
-                    PlayerApi.mediaHeaders(variant.clientUserAgent),
+                    PlayerApi.mediaHeaders(variant.clientUserAgent, webViewCookies()),
                     onFailure = { fallBackToNextVariant() },
                 )
                 val quality = variant.video.qualityLabel ?: variant.video.itag.toString()
