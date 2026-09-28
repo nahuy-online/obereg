@@ -50,6 +50,13 @@ class YouTubeActivity : AppCompatActivity() {
 
     /** Сколько раз браузер обращался к медиасерверу — видно, работает ли перехват. */
     private var mediaRequests: Int = 0
+
+    /** Адрес текущей загрузки и признак того, что авто-попытка другим маршрутом уже была. */
+    private var currentNavigationUrl: String = ""
+    private var retryWithOtherRoute: Boolean = false
+
+    /** Какой маршрут реально применялся последним (true — наш туннель). */
+    private var lastRouteTunnel: Boolean = false
     private var routeNote: String = ""
     private var currentVideoId: String = ""
     private var useEmbed: Boolean = false
@@ -131,6 +138,21 @@ class YouTubeActivity : AppCompatActivity() {
                 } else {
                     "неизвестная ошибка"
                 }
+                // Сетевая ошибка на основном документе — пробуем другой маршрут: если напрямую
+                // не открылось (канал не пускает), идём через наш туннель; и наоборот.
+                // Одна авто-попытка на загрузку, чтобы не крутиться в петле.
+                val isMainDocument = request?.isForMainFrame ?: false
+                if (isMainDocument && !retryWithOtherRoute && currentNavigationUrl.isNotEmpty()) {
+                    retryWithOtherRoute = true
+                    val flipped = !lastRouteTunnel
+                    routeNote = applyRouteUsing(flipped)
+                    render(
+                        "страница не загрузилась ($description) — пробую " +
+                            if (flipped) "через наш туннель" else "напрямую",
+                    )
+                    webView.post { webView.loadUrl(currentNavigationUrl) }
+                    return
+                }
                 render("ОШИБКА загрузки: $description\n${request?.url ?: ""}")
             }
 
@@ -171,9 +193,8 @@ class YouTubeActivity : AppCompatActivity() {
             }
             val encoded = URLEncoder.encode(query, "UTF-8")
             val url = "https://m.youtube.com/results?search_query=$encoded"
-            routeNote = applyRoute()
+            loadWithFreshRoute(url)
             render("поиск: $query")
-            webView.loadUrl(url)
         }
         findViewById<Button>(R.id.btnOpenInBrowser).setOnClickListener {
             openOutside("https://www.youtube.com/watch?v=$currentVideoId")
@@ -182,9 +203,8 @@ class YouTubeActivity : AppCompatActivity() {
             openOutside("vnd.youtube:$currentVideoId")
         }
         findViewById<Button>(R.id.btnCheckAccess).setOnClickListener {
-            routeNote = applyRoute()
+            loadWithFreshRoute("https://www.youtube.com/generate_204")
             render("проверяю доступ к YouTube из WebView…")
-            webView.loadUrl("https://www.youtube.com/generate_204")
         }
         findViewById<Button>(R.id.btnPlayCaptured).setOnClickListener {
             val video = capturedVideo
@@ -246,7 +266,11 @@ class YouTubeActivity : AppCompatActivity() {
      * без этого WebView остался бы с адресом мёртвого прокси и все запросы падали бы
      * с `ERR_PROXY_CONNECTION_FAILED`.
      */
-    private fun applyRoute(): String {
+    private fun applyRoute(): String = applyRouteUsing(tunnelCheck.isChecked)
+
+    /** Применить маршрут по явному выбору: наш туннель или напрямую. */
+    private fun applyRouteUsing(wantTunnel: Boolean): String {
+        lastRouteTunnel = wantTunnel
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             return "маршрут: напрямую (прокси туннеля требует Android 9+)"
         }
@@ -258,7 +282,7 @@ class YouTubeActivity : AppCompatActivity() {
         // Маршрут для этого экрана — выбор пользователя: без галочки браузер идёт напрямую
         // (через системный VPN, если он поднят). Наш туннель для браузера труднее: медиа-потоки
         // живут долго, и именно на них возникают обрывы, если включить его принудительно.
-        val address = if (tunnelCheck.isChecked) CoreHolder.httpProxyAddr() else null
+        val address = if (wantTunnel) CoreHolder.httpProxyAddr() else null
         return try {
             if (address != null) {
                 val config = ProxyConfig.Builder().addProxyRule(address).build()
@@ -266,7 +290,7 @@ class YouTubeActivity : AppCompatActivity() {
                 "маршрут: через наш туннель ($address)"
             } else {
                 controller.clearProxyOverride(executor) { /* готово */ }
-                if (tunnelCheck.isChecked) {
+                if (wantTunnel) {
                     "маршрут: напрямую (туннель не поднят — на главном экране есть кнопка запуска)"
                 } else {
                     "маршрут: напрямую (системный VPN, если включён)"
@@ -284,9 +308,13 @@ class YouTubeActivity : AppCompatActivity() {
         } else {
             "https://m.youtube.com/watch?v=$videoId"
         }
-        // Маршрут обновляем перед каждой загрузкой: порт туннеля меняется при каждом запуске,
-        // и старая настройка прокси увела бы браузер на мёртвый порт
-        // (отсюда ERR_CONNECTION_CLOSED и TIMED_OUT).
+        loadWithFreshRoute(url)
+    }
+
+    /** Загрузить адрес с обновлённым маршрутом и одной авто-попыткой другого маршрута при ошибке. */
+    private fun loadWithFreshRoute(url: String) {
+        currentNavigationUrl = url
+        retryWithOtherRoute = false
         routeNote = applyRoute()
         render("открываю: $url")
         webView.loadUrl(url)
