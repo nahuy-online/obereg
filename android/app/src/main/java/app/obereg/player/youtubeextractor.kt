@@ -25,6 +25,8 @@ sealed interface ExtractResult {
     data class Success(
         val format: StreamFormat,
         val total: Int,
+        /** Кто выдал поток: плеер должен обращаться к нему с тем же агентом. */
+        val clientUserAgent: String = "",
     ) : ExtractResult
 
     /** Сервис отдал только раздельные потоки: нужна склейка. */
@@ -35,6 +37,8 @@ sealed interface ExtractResult {
         val video: StreamFormat,
         val audio: StreamFormat,
         val total: Int,
+        /** Кто выдал потоки: плеер должен обращаться к ним с тем же агентом. */
+        val clientUserAgent: String = "",
     ) : ExtractResult
 
     /** Извлечение недоступно: сеть, отказ сервиса или новый формат ответа. */
@@ -171,11 +175,7 @@ object PlayerApi {
             .toString()
     }
 
-    /**
-     * Полное описание запроса для профиля.
-     *
-     * Ключ передаётся аргументом: единственный допустимый источник — сама страница сервиса.
-     */
+    /** Описание запроса для профиля. */
     fun spec(profile: ClientProfile, videoId: String, apiKey: String): RequestSpec = RequestSpec(
         url = "$ENDPOINT?key=$apiKey&prettyPrint=false",
         body = requestBody(profile, videoId),
@@ -190,6 +190,32 @@ object PlayerApi {
 
     /** Адрес страницы просмотра для видео. */
     fun watchUrl(videoId: String): String = "$WATCH_ENDPOINT?v=$videoId&hl=ru"
+
+    /**
+     * Заголовки для запроса самого видеофайла.
+     *
+     * Адрес потока выдаётся конкретному клиенту: если запросить его с другим агентом
+     * или без источника, сервис отвечает ошибкой (в Media3 это «неверный код ответа»),
+     * поэтому повторяем агента выдачи и добавляем источник.
+     */
+    fun mediaHeaders(clientUserAgent: String): Map<String, String> {
+        val headers = mutableMapOf(
+            "Referer" to "https://www.youtube.com/",
+            "Origin" to "https://www.youtube.com",
+            "Accept-Language" to "ru-RU,ru;q=0.9",
+        )
+        if (clientUserAgent.isNotBlank()) {
+            headers["User-Agent"] = clientUserAgent
+        }
+        return headers
+    }
+
+    /** Проставить в результате агента того клиента, который его выдал. */
+    fun withAgent(result: ExtractResult, agent: String): ExtractResult = when (result) {
+        is ExtractResult.Success -> result.copy(clientUserAgent = agent)
+        is ExtractResult.SeparateStreams -> result.copy(clientUserAgent = agent)
+        else -> result
+    }
 
     /**
      * Достать готовый ответ плеера из страницы просмотра.
@@ -289,7 +315,7 @@ class YouTubeExtractor(
                 notes += "на странице нет данных плеера"
             } else {
                 val result = interpret(CoreHolder.analyzePlayerResponse(playerResponse))
-                if (result.isUsable) return result
+                if (result.isUsable) return PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
                 notes += "страница: ${(result as ExtractResult.Failure).reason}"
             }
 
@@ -322,7 +348,8 @@ class YouTubeExtractor(
             is Fetch.Failed -> return ExtractResult.Failure(fetched.reason)
             is Fetch.Ok -> fetched.text
         }
-        return interpret(CoreHolder.analyzePlayerResponse(raw))
+        val result = interpret(CoreHolder.analyzePlayerResponse(raw))
+        return if (result is ExtractResult.Failure) result else PlayerApi.withAgent(result, profile.userAgent)
     }
 
     /** Забрать страницу или текст по адресу. */

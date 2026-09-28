@@ -94,7 +94,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun play(url: String) {
+    private fun play(url: String, headers: Map<String, String> = emptyMap()) {
         hideKeyboard()
         if (url.isEmpty()) {
             renderStatus("укажите ссылку на видеофайл")
@@ -121,8 +121,12 @@ class PlayerActivity : AppCompatActivity() {
             playerView.player = it
             it.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
+                    val cause = error.cause?.message?.take(140)
                     lastPlayerEvent = "ОШИБКА ${error.errorCodeName}: ${error.message}"
-                    renderStatus("воспроизведение не удалось: ${error.errorCodeName}")
+                    renderStatus(
+                        "воспроизведение не удалось: ${error.errorCodeName}" +
+                            if (cause.isNullOrBlank()) "" else " — $cause",
+                    )
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
@@ -141,7 +145,7 @@ class PlayerActivity : AppCompatActivity() {
         exo.stop()
         exo.clearMediaItems()
 
-        val mediaSource = buildMediaSource(url, proxyAddress)
+        val mediaSource = buildMediaSource(url, proxyAddress, headers)
         exo.setMediaSource(mediaSource)
         exo.prepare()
         exo.playWhenReady = true
@@ -179,7 +183,7 @@ class PlayerActivity : AppCompatActivity() {
                 when (result) {
                     is ExtractResult.Success -> {
                         currentTitle = "YouTube $videoId"
-                        play(result.format.url)
+                        play(result.format.url, PlayerApi.mediaHeaders(result.clientUserAgent))
                         renderStatus(
                             "свой плеер: поток ${result.format.qualityLabel ?: result.format.itag.toString()}, " +
                                 "всего потоков в ответе — ${result.total}",
@@ -187,7 +191,11 @@ class PlayerActivity : AppCompatActivity() {
                     }
                     is ExtractResult.SeparateStreams -> {
                         currentTitle = "YouTube $videoId"
-                        playSeparate(result.video.url, result.audio.url)
+                        playSeparate(
+                            result.video.url,
+                            result.audio.url,
+                            PlayerApi.mediaHeaders(result.clientUserAgent),
+                        )
                         renderStatus(
                             "свой плеер: сервис отдал видео и звук раздельно — играю вместе " +
                                 "(видео ${result.video.qualityLabel ?: result.video.itag.toString()}, " +
@@ -205,7 +213,11 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /** Воспроизведение двух раздельных потоков (видео + звук) одновременно. */
-    private fun playSeparate(videoUrl: String, audioUrl: String) {
+    private fun playSeparate(
+        videoUrl: String,
+        audioUrl: String,
+        headers: Map<String, String> = emptyMap(),
+    ) {
         val proxyAddress = if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
         val exo = player ?: ExoPlayer.Builder(this).build().also {
             player = it
@@ -214,7 +226,7 @@ class PlayerActivity : AppCompatActivity() {
         exo.stop()
         exo.clearMediaItems()
 
-        val factory = DefaultDataSource.Factory(this, httpDataSource(proxyAddress))
+        val factory = DefaultDataSource.Factory(this, httpDataSource(proxyAddress, headers))
         val videoSource = ProgressiveMediaSource.Factory(factory)
             .createMediaSource(MediaItem.fromUri(videoUrl))
         val audioSource = ProgressiveMediaSource.Factory(factory)
@@ -230,12 +242,19 @@ class PlayerActivity : AppCompatActivity() {
         renderStatus("остановлено")
     }
 
-    private fun buildMediaSource(url: String, proxyAddress: String?) =
-        ProgressiveMediaSource.Factory(DefaultDataSource.Factory(this, httpDataSource(proxyAddress)))
+    private fun buildMediaSource(
+        url: String,
+        proxyAddress: String?,
+        headers: Map<String, String> = emptyMap(),
+    ) =
+        ProgressiveMediaSource.Factory(DefaultDataSource.Factory(this, httpDataSource(proxyAddress, headers)))
             .createMediaSource(MediaItem.fromUri(url))
 
     /** Сетевой слой плеера: при наличии адреса прокси HTTP-трафик идёт в SOCKS5 ядра. */
-    private fun httpDataSource(proxyAddress: String?): OkHttpDataSource.Factory {
+    private fun httpDataSource(
+        proxyAddress: String?,
+        headers: Map<String, String> = emptyMap(),
+    ): OkHttpDataSource.Factory {
         val clientBuilder = OkHttpClient.Builder()
             .connectTimeout(java.time.Duration.ofSeconds(15))
             .readTimeout(java.time.Duration.ofSeconds(20))
@@ -248,6 +267,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         return OkHttpDataSource.Factory(clientBuilder.build())
+            .setDefaultRequestProperties(headers)
     }
 
     /**

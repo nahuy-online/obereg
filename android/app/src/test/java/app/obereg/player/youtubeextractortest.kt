@@ -102,6 +102,29 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun mediaHeadersRepeatIssuingClient() {
+        // Адрес потока выдаётся конкретному клиенту: запрос с другим агентом сервис отбивает
+        // (в плеере это выглядит как «неверный код ответа»), поэтому агент и источник обязательны.
+        val headers = PlayerApi.mediaHeaders("com.google.android.youtube/19.09.37")
+        assertEquals("com.google.android.youtube/19.09.37", headers["User-Agent"])
+        assertEquals("https://www.youtube.com/", headers["Referer"])
+        assertEquals("https://www.youtube.com", headers["Origin"])
+        assertTrue("без агента заголовок не добавляется", !PlayerApi.mediaHeaders("").containsKey("User-Agent"))
+    }
+
+    @Test
+    fun agentIsAttachedToUsableResults() {
+        val success = ExtractResult.Success(
+            StreamFormat(22, "video/mp4", "https://example.invalid/v/22", "720p", 2000000),
+            1,
+        )
+        val withAgent = PlayerApi.withAgent(success, "TV-UA") as ExtractResult.Success
+        assertEquals("TV-UA", withAgent.clientUserAgent)
+        val failure = ExtractResult.Failure("нет")
+        assertTrue(PlayerApi.withAgent(failure, "TV-UA") is ExtractResult.Failure)
+    }
+
+    @Test
     fun watchUrlCarriesVideoId() {
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=ru", PlayerApi.watchUrl("dQw4w9WgXcQ"))
     }
