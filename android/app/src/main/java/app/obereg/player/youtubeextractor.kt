@@ -266,6 +266,25 @@ object PlayerApi {
         return "HTTP $code" + if (short.isEmpty()) " (пустой ответ)" else ": $short"
     }
 
+    /**
+     * Что именно отдал сервис: код, тип содержимого и вид первых байтов.
+     *
+     * Без этого не отличить одно от другого: «не распознан контейнер» одинаково выглядит
+     * и когда пришёл WebM, и когда вместо видео пришла HTML-страница.
+     */
+    fun responseFingerprint(code: Int, contentType: String?, head: ByteArray): String {
+        val text = String(head, Charsets.ISO_8859_1)
+        val magic = when {
+            text.startsWith("\u001A\u0045\u00DF\u00A3") -> "WebM (Матрёшка)"
+            text.startsWith("ftyp") -> "MP4"
+            text.length >= 4 && text[3] == 'y' -> "MP4 (ftyp)"
+            text.startsWith("<!DO") || text.startsWith("<htm") -> "HTML-страница (не видео!)"
+            text.startsWith("\u001F\u008B") -> "сжатый ответ (gzip)"
+            else -> "неизвестное начало"
+        }
+        return "HTTP $code, тип: ${contentType ?: "нет"}, начало: $magic"
+    }
+
     /** Человекочитаемая причина любого непригодного исхода — без рискованных приведений типа. */
     fun reasonOf(result: ExtractResult): String = when (result) {
         is ExtractResult.Failure -> result.reason

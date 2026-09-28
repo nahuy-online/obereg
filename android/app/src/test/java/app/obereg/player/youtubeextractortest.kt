@@ -127,6 +127,21 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun fingerprintDistinguishesMediaFromPages() {
+        // «Не распознан контейнер» одинаково выглядит и при WebM, и при HTML вместо видео.
+        val webm = byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte(), 0x01, 0x00)
+        assertTrue(
+            PlayerApi.responseFingerprint(200, "video/webm", webm).contains("WebM"),
+        )
+        val html = "<!DOCTYPE html><html>".toByteArray()
+        val page = PlayerApi.responseFingerprint(200, "text/html", html)
+        assertTrue("HTML должен опознаваться: $page", page.contains("HTML"))
+        val mp4 = "ftypisom....".toByteArray()
+        assertTrue(PlayerApi.responseFingerprint(200, "video/mp4", mp4).contains("MP4"))
+        assertTrue(PlayerApi.responseFingerprint(403, null, ByteArray(0)).contains("HTTP 403"))
+    }
+
+    @Test
     fun streamWithoutMimeIsTreatedAsVideo() {
         // Регрессия: на устройстве было 12 обращений к медиасерверу и ни одного пойманного
         // потока — строгое требование mime отсекало запросы без этого параметра.

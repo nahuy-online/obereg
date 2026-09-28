@@ -120,7 +120,11 @@ class YouTubeActivity : AppCompatActivity() {
                     "video" -> {
                         capturedVideo = PlayerApi.streamUrlForPlayer(url)
                         DiagLog.add("пойман видеопоток (обращений: $mediaRequests)")
-                        render("пойман видеопоток (обращений к медиасерверу: $mediaRequests)")
+                        // Перехватчик работает НЕ в потоке экрана: трогать надписи можно
+                        // только через runOnUiThread, иначе приложение падает.
+                        runOnUiThread {
+                            render("пойман видеопоток (обращений к медиасерверу: $mediaRequests)")
+                        }
                     }
                     "audio" -> {
                         capturedAudio = PlayerApi.streamUrlForPlayer(url)

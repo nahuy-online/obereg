@@ -163,8 +163,11 @@ class PlayerActivity : AppCompatActivity() {
                         "воспроизведение не удалось: ${error.errorCodeName}" +
                             if (cause.isNullOrBlank()) "" else " — $cause",
                     )
-                    // Если сервис отказал по коду — спрашиваем у него самого причину.
-                    if (error.errorCodeName == "ERROR_CODE_IO_BAD_HTTP_STATUS") {
+                    // Если сервис отказал по коду или отдал непонятный контейнер —
+                    // спрашиваем у него самого причину и что именно он присылает.
+                    if (error.errorCodeName == "ERROR_CODE_IO_BAD_HTTP_STATUS" ||
+                        error.errorCodeName == "ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED"
+                    ) {
                         probeCurrentStream()
                     }
                 } else {
@@ -439,7 +442,17 @@ class PlayerActivity : AppCompatActivity() {
                     .apply { headers.forEach { (name, value) -> header(name, value) } }
                     .build()
                 builder.build().newCall(request).execute().use { response ->
-                    PlayerApi.probeSummary(response.code, response.body?.string().orEmpty())
+                    val contentType = response.header("Content-Type")
+                    val stream = response.body?.byteStream()
+                    val head = ByteArray(16)
+                    val read = stream?.read(head) ?: -1
+                    val headBytes = if (read > 0) head.copyOf(read) else ByteArray(0)
+                    val looksTextual = contentType?.let {
+                        it.startsWith("text") || it.contains("json") || it.contains("html")
+                    } ?: false
+                    val text = if (looksTextual) String(headBytes, Charsets.UTF_8) else ""
+                    PlayerApi.responseFingerprint(response.code, contentType, headBytes) +
+                        if (text.isNotBlank()) " · текст: ${text.take(80)}" else ""
                 }
             } catch (error: Exception) {
                 "проба не удалась: ${error.message?.take(120)}"
