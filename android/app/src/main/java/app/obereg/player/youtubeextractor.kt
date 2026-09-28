@@ -114,6 +114,20 @@ object PlayerApi {
             embedUrl = "https://www.youtube.com/",
         ),
         ClientProfile(
+            label = "ANDROID_VR",
+            clientName = "ANDROID_VR",
+            clientVersion = "1.60.19",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; GB) gzip",
+            clientHeaderName = "28",
+            extraContext = mapOf(
+                "androidSdkVersion" to 32,
+                "deviceMake" to "Oculus",
+                "deviceModel" to "Quest 3",
+                "osName" to "Android",
+                "osVersion" to "12",
+            ),
+        ),
+        ClientProfile(
             label = "WEB_EMBEDDED",
             clientName = "WEB_EMBEDDED_PLAYER",
             clientVersion = "1.20240723.01.00",
@@ -210,6 +224,21 @@ object PlayerApi {
         return headers
     }
 
+    /** Убрать повторы: разные клиенты могут выдать одну и ту же ссылку. */
+    fun distinctByUrl(results: List<ExtractResult>): List<ExtractResult> {
+        val seen = mutableSetOf<String>()
+        val unique = mutableListOf<ExtractResult>()
+        for (result in results) {
+            val key = when (result) {
+                is ExtractResult.Success -> result.format.url
+                is ExtractResult.SeparateStreams -> "${result.video.url}|${result.audio.url}"
+                else -> null
+            } ?: continue
+            if (seen.add(key)) unique += result
+        }
+        return unique
+    }
+
     /** Проставить в результате агента того клиента, который его выдал. */
     fun withAgent(result: ExtractResult, agent: String): ExtractResult = when (result) {
         is ExtractResult.Success -> result.copy(clientUserAgent = agent)
@@ -294,14 +323,23 @@ class YouTubeExtractor(
     private val cookieProvider: (() -> String?)? = null,
 ) {
 
+    /** Итог попыток: пригодные варианты по порядку предпочтения и причины отказов. */
+    data class ResolveOutcome(
+        /** Варианты для воспроизведения: первый — основной, остальные — запасные. */
+        val usable: List<ExtractResult>,
+        /** Почему что-то не получилось — для строки статуса. */
+        val notes: List<String>,
+    )
+
     /**
-     * Найти поток для видео по идентификатору.
+     * Собрать варианты воспроизведения.
      *
-     * Сначала читаем страницу просмотра и берём из неё готовый ответ плеера;
-     * если там пусто — берём со страницы ключ и спрашиваем программный интерфейс
-     * по очереди от лица нескольких клиентов. В отчёте об ошибке видны причины всех попыток.
+     * Раньше возвращался только первый успешный ответ, и если его ссылка не воспроизводилась
+     * (сервис отвечает 403 на чужой запрос), других попыток не было. Теперь собираем
+     * несколько вариантов от разных клиентов — плеер переберёт их по очереди.
      */
-    fun resolve(videoId: String): ExtractResult {
+    fun resolveDetailed(videoId: String): ResolveOutcome {
+        val usable = mutableListOf<ExtractResult>()
         val notes = mutableListOf<String>()
 
         val page = when (val fetched = fetch(PlayerApi.watchUrl(videoId), PlayerApi.BROWSER_USER_AGENT)) {
@@ -315,8 +353,11 @@ class YouTubeExtractor(
                 notes += "на странице нет данных плеера"
             } else {
                 val result = interpret(CoreHolder.analyzePlayerResponse(playerResponse))
-                if (result.isUsable) return PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
-                notes += "страница: ${(result as ExtractResult.Failure).reason}"
+                if (result.isUsable) {
+                    usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
+                } else {
+                    notes += "страница: ${(result as ExtractResult.Failure).reason}"
+                }
             }
 
             val apiKey = PlayerApi.extractApiKey(page)
@@ -332,13 +373,22 @@ class YouTubeExtractor(
                     }
                     when (val result = attempt(tuned, videoId, apiKey)) {
                         is ExtractResult.Failure -> notes += "${tuned.label}: ${result.reason}"
-                        else -> return result
+                        else -> usable += result
                     }
+                    // Двух запасных вариантов достаточно: больше — лишние запросы к сервису.
+                    if (usable.size >= 3) break
                 }
             }
         }
 
-        return ExtractResult.Failure(notes.joinToString(" | "))
+        return ResolveOutcome(PlayerApi.distinctByUrl(usable), notes)
+    }
+
+    /** Найти поток для видео по идентификатору (первый пригодный вариант). */
+    fun resolve(videoId: String): ExtractResult {
+        val outcome = resolveDetailed(videoId)
+        return outcome.usable.firstOrNull()
+            ?: ExtractResult.Failure(outcome.notes.joinToString(" | ").ifBlank { "сервис не дал потоков" })
     }
 
     /** Одна попытка конкретным профилем клиента. */

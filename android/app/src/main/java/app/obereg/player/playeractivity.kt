@@ -26,11 +26,13 @@ import java.net.Proxy
  * Минимальный плеер: воспроизведение видеофайла, при включённой галочке —
  * через локальный SOCKS5-прокси ядра (то есть через встроенный туннель).
  *
- * Что уже есть: воспроизведение произвольной ссылки на видео, маршрутизация через туннель,
- * отображение состояния и счётчика обслуженных соединений.
+ * Что уже есть: воспроизведение ссылки на файл, маршрутизация через туннель,
+ * своё воспроизведение потоков видеосервиса (извлечение делает ядро + оболочка),
+ * перебор нескольких источников потока, если очередной не воспроизводится,
+ * панель состояния с исходом и счётчиком обслуженных соединений.
  *
- * Что относится к следующему этапу продукта: каталог и поиск видео, извлечение потоков
- * у видеосервиса, фильтрация рекламных вставок, скачивание и офлайн.
+ * Что относится к следующему этапу продукта: каталог и поиск внутри приложения,
+ * скачивание и офлайн-просмотр.
  */
 @UnstableApi
 class PlayerActivity : AppCompatActivity() {
@@ -45,6 +47,12 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Последнее значимое сообщение (исход извлечения, ошибка) — не затирается событиями плеера. */
     private var statusMessage: String = "готово к работе"
+
+    /** Запасные источники потока: если основной не воспроизводится, берём следующий. */
+    private val variants = ArrayDeque<ExtractResult>()
+
+    /** Что делать при ошибке воспроизведения (перебор источников). */
+    private var onPlaybackFailure: (() -> Boolean)? = null
 
     private val presets = listOf(
         "asset:///sample.mp4",
@@ -94,7 +102,50 @@ class PlayerActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun play(url: String, headers: Map<String, String> = emptyMap()) {
+    /**
+     * Плеер создаётся один раз вместе с обработчиком событий.
+     *
+     * Раньше обработчик добавлялся только в одном из путей запуска, из-за чего ошибка
+     * при воспроизведении раздельных дорожек могла остаться незамеченной.
+     */
+    private fun ensurePlayer(): ExoPlayer {
+        player?.let { return it }
+        val created = ExoPlayer.Builder(this).build()
+        player = created
+        playerView.player = created
+        created.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                val cause = error.cause?.message?.take(140)
+                lastPlayerEvent = "ОШИБКА ${error.errorCodeName}: ${error.message}"
+                val advanced = onPlaybackFailure?.invoke() ?: false
+                if (!advanced) {
+                    renderStatus(
+                        "воспроизведение не удалось: ${error.errorCodeName}" +
+                            if (cause.isNullOrBlank()) "" else " — $cause",
+                    )
+                }
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                lastPlayerEvent = when (state) {
+                    Player.STATE_IDLE -> "idle"
+                    Player.STATE_BUFFERING -> "буферизация"
+                    Player.STATE_READY -> "готово/играет"
+                    Player.STATE_ENDED -> "завершено"
+                    else -> "состояние $state"
+                }
+                // Важно: состояние плеера не должно затирать исход извлечения.
+                renderPanel()
+            }
+        })
+        return created
+    }
+
+    private fun play(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        onFailure: (() -> Boolean)? = null,
+    ) {
         hideKeyboard()
         if (url.isEmpty()) {
             renderStatus("укажите ссылку на видеофайл")
@@ -116,34 +167,10 @@ class PlayerActivity : AppCompatActivity() {
             renderStatus("туннель не поднят — на экране приёмки нажмите «Запустить туннель»; сейчас играю напрямую")
         }
 
-        val exo = player ?: ExoPlayer.Builder(this).build().also {
-            player = it
-            playerView.player = it
-            it.addListener(object : Player.Listener {
-                override fun onPlayerError(error: PlaybackException) {
-                    val cause = error.cause?.message?.take(140)
-                    lastPlayerEvent = "ОШИБКА ${error.errorCodeName}: ${error.message}"
-                    renderStatus(
-                        "воспроизведение не удалось: ${error.errorCodeName}" +
-                            if (cause.isNullOrBlank()) "" else " — $cause",
-                    )
-                }
-
-                override fun onPlaybackStateChanged(state: Int) {
-                    lastPlayerEvent = when (state) {
-                        Player.STATE_IDLE -> "idle"
-                        Player.STATE_BUFFERING -> "буферизация"
-                        Player.STATE_READY -> "готово/играет"
-                        Player.STATE_ENDED -> "завершено"
-                        else -> "состояние $state"
-                    }
-                    // Важно: состояние плеера не должно затирать исход извлечения.
-                    renderPanel()
-                }
-            })
-        }
+        val exo = ensurePlayer()
         exo.stop()
         exo.clearMediaItems()
+        onPlaybackFailure = onFailure
 
         val mediaSource = buildMediaSource(url, proxyAddress, headers)
         exo.setMediaSource(mediaSource)
@@ -160,9 +187,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /**
-     * Своё воспроизведение YouTube: извлекаем поток у видеосервиса и отдаём его нашему плееру
-     * (Media3 через SOCKS5-прокси ядра). Если сервис отдаёт только раздельные потоки —
-     * честно сообщаем об этом: для них нужна склейка, её пока нет.
+     * Своё воспроизведение потоков видеосервиса.
+     *
+     * Извлечение делает оболочка вместе с ядром; если клиент отдал несколько вариантов
+     * потока, плеер начнёт с лучшего и при ошибке сам перейдёт к запасным.
      */
     private fun playYouTube() {
         hideKeyboard()
@@ -175,41 +203,62 @@ class PlayerActivity : AppCompatActivity() {
         val proxy = CoreHolder.status().listenAddr
         renderStatus("извлекаю поток для видео $videoId…")
         Thread {
-            val result = YouTubeExtractor(
+            val outcome = YouTubeExtractor(
                 proxyAddress = proxy,
                 cookieProvider = { webViewCookies() },
-            ).resolve(videoId)
+            ).resolveDetailed(videoId)
             runOnUiThread {
-                when (result) {
-                    is ExtractResult.Success -> {
-                        currentTitle = "YouTube $videoId"
-                        play(result.format.url, PlayerApi.mediaHeaders(result.clientUserAgent))
-                        renderStatus(
-                            "свой плеер: поток ${result.format.qualityLabel ?: result.format.itag.toString()}, " +
-                                "всего потоков в ответе — ${result.total}",
-                        )
-                    }
-                    is ExtractResult.SeparateStreams -> {
-                        currentTitle = "YouTube $videoId"
-                        playSeparate(
-                            result.video.url,
-                            result.audio.url,
-                            PlayerApi.mediaHeaders(result.clientUserAgent),
-                        )
-                        renderStatus(
-                            "свой плеер: сервис отдал видео и звук раздельно — играю вместе " +
-                                "(видео ${result.video.qualityLabel ?: result.video.itag.toString()}, " +
-                                "всего потоков ${result.total})",
-                        )
-                    }
-                    is ExtractResult.NoMuxedStream -> renderStatus(
-                        "сервис отдал только раздельные потоки (${result.adaptive}), но без звуковой дорожки — " +
-                            "играть нечего; откройте экран YouTube и попробуйте другой маршрут",
-                    )
-                    is ExtractResult.Failure -> renderStatus("извлечение не удалось: ${result.reason}")
+                val first = outcome.usable.firstOrNull()
+                if (first == null) {
+                    renderStatus("извлечение не удалось: ${outcome.notes.joinToString(" | ")}")
+                    return@runOnUiThread
                 }
+                currentTitle = "YouTube $videoId"
+                variants.clear()
+                variants.addAll(outcome.usable.drop(1))
+                onVariant(first)
             }
         }.start()
+    }
+
+    /** Отдать плееру один вариант воспроизведения. */
+    private fun onVariant(variant: ExtractResult) {
+        when (variant) {
+            is ExtractResult.Success -> {
+                play(
+                    variant.format.url,
+                    PlayerApi.mediaHeaders(variant.clientUserAgent),
+                    onFailure = { fallBackToNextVariant() },
+                )
+                val quality = variant.format.qualityLabel ?: variant.format.itag.toString()
+                renderStatus(
+                    "свой плеер: поток $quality, всего потоков в ответе — ${variant.total}" +
+                        (if (variants.isEmpty()) "" else ", запасных источников: ${variants.size}"),
+                )
+            }
+            is ExtractResult.SeparateStreams -> {
+                playSeparate(
+                    variant.video.url,
+                    variant.audio.url,
+                    PlayerApi.mediaHeaders(variant.clientUserAgent),
+                    onFailure = { fallBackToNextVariant() },
+                )
+                val quality = variant.video.qualityLabel ?: variant.video.itag.toString()
+                renderStatus(
+                    "свой плеер: видео и звук раздельно — играю вместе (видео $quality)" +
+                        (if (variants.isEmpty()) "" else ", запасных источников: ${variants.size}"),
+                )
+            }
+            else -> Unit
+        }
+    }
+
+    /** Если поток не пошёл — попробовать следующий источник из собранных вариантов. */
+    private fun fallBackToNextVariant(): Boolean {
+        val next = variants.removeFirstOrNull() ?: return false
+        renderStatus("этот источник не подошёл — пробую следующий (осталось: ${variants.size + 1})")
+        onVariant(next)
+        return true
     }
 
     /** Воспроизведение двух раздельных потоков (видео + звук) одновременно. */
@@ -217,14 +266,13 @@ class PlayerActivity : AppCompatActivity() {
         videoUrl: String,
         audioUrl: String,
         headers: Map<String, String> = emptyMap(),
+        onFailure: (() -> Boolean)? = null,
     ) {
         val proxyAddress = if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
-        val exo = player ?: ExoPlayer.Builder(this).build().also {
-            player = it
-            playerView.player = it
-        }
+        val exo = ensurePlayer()
         exo.stop()
         exo.clearMediaItems()
+        onPlaybackFailure = onFailure
 
         val factory = DefaultDataSource.Factory(this, httpDataSource(proxyAddress, headers))
         val videoSource = ProgressiveMediaSource.Factory(factory)
@@ -239,6 +287,8 @@ class PlayerActivity : AppCompatActivity() {
     private fun stopPlayback() {
         player?.stop()
         player?.clearMediaItems()
+        onPlaybackFailure = null
+        variants.clear()
         renderStatus("остановлено")
     }
 

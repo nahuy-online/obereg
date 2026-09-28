@@ -102,6 +102,31 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun variantsAreDeduplicatedByUrl() {
+        val first = ExtractResult.Success(StreamFormat(18, "video/mp4", "https://example.invalid/a", "360p", 500000), 1)
+        val same = ExtractResult.Success(StreamFormat(18, "video/mp4", "https://example.invalid/a", "360p", 500000), 2)
+        val second = ExtractResult.Success(StreamFormat(22, "video/mp4", "https://example.invalid/b", "720p", 2000000), 2)
+        val failure = ExtractResult.Failure("нет")
+        val unique = PlayerApi.distinctByUrl(listOf(first, same, second, failure))
+        assertEquals("повторы и отказы отбрасываются", 2, unique.size)
+        assertEquals("https://example.invalid/b", (unique[1] as ExtractResult.Success).format.url)
+    }
+
+    @Test
+    fun vrClientIsAvailableWithoutAttestation() {
+        // Клиент очков известен тем, что не требует токена подтверждения,
+        // и его ссылки обычно воспроизводятся — нужен как запасной вариант.
+        val labels = PlayerApi.profiles.map { it.label }
+        assertTrue("клиент очков должен быть в списке: $labels", labels.contains("ANDROID_VR"))
+        val vr = PlayerApi.profiles.first { it.label == "ANDROID_VR" }
+        assertNull("клиенту очков не нужен источник встраивания", vr.embedUrl)
+        assertTrue(
+            "у клиента очков должна быть версия системы",
+            PlayerApi.spec(vr, "dQw4w9WgXcQ", "TEST-KEY-123").body.contains("androidSdkVersion"),
+        )
+    }
+
+    @Test
     fun mediaHeadersRepeatIssuingClient() {
         // Адрес потока выдаётся конкретному клиенту: запрос с другим агентом сервис отбивает
         // (в плеере это выглядит как «неверный код ответа»), поэтому агент и источник обязательны.
@@ -132,10 +157,11 @@ class YouTubeExtractorTest {
     @Test
     fun embeddedProfilesGoFirstAndCarryEmbedUrl() {
         // С 2024 года мобильные клиенты обязаны предоставлять токен подтверждения (PO token),
-        // поэтому первыми идут встроенные — им токен не нужен.
+        // поэтому первыми идут встроенные и клиент очков — им токен не нужен.
         val labels = PlayerApi.profiles.map { it.label }
         assertTrue("первым должен идти ТВ-клиент: $labels", labels.first() == "TV_EMBEDDED")
-        assertTrue("вторым — веб-встроенный: $labels", labels[1] == "WEB_EMBEDDED")
+        assertTrue("вторым — клиент очков (не требует токена): $labels", labels[1] == "ANDROID_VR")
+        assertTrue("третьим — веб-встроенный: $labels", labels[2] == "WEB_EMBEDDED")
         for (profile in PlayerApi.profiles.filter { it.embedUrl != null }) {
             val body = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123").body
             assertTrue(
