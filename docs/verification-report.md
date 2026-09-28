@@ -173,7 +173,7 @@ gradle -p android :app:assembleDebug
 | Точка входа | `app.obereg.player.MainActivity` (+ `PlayerActivity`) |
 | Нативные библиотеки внутри APK | `lib/{arm64-v8a,armeabi-v7a,x86_64}/libobereg_{jni,ffi}.so` |
 | `native-code` | arm64-v8a, armeabi-v7a, x86_64 |
-| SHA-256 | `2B523F3910E87FE7B6404AB92187F6F2350A6E9E5A680559607C47E8EF82FC3B` |
+| SHA-256 | `DD36E1F74BA09BE8770DB040F10FDE9DA3790EB1DD5ED230B9D592D8E18F40B1` |
 
 Осталось только установить APK на телефон/эмулятор и пройти сценарий с экрана
 (команды — в `android/README.md`, раздел «Приёмка на устройстве»).
