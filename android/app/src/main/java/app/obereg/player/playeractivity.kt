@@ -189,7 +189,7 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
         val tunnel = tunnelCheck.isChecked && !local
-        val proxyAddress = if (tunnel) CoreHolder.status().listenAddr else null
+        val proxyAddress = if (local) null else currentProxy()
 
         if (tunnel && proxyAddress == null) {
             renderStatus("туннель не поднят — на экране приёмки нажмите «Запустить туннель»; сейчас играю напрямую")
@@ -230,8 +230,8 @@ class PlayerActivity : AppCompatActivity() {
             renderStatus("это не похоже на ссылку или идентификатор YouTube")
             return
         }
-        val proxy = CoreHolder.status().listenAddr
-        renderStatus("извлекаю поток для видео $videoId…")
+        val proxy = currentProxy()
+        renderStatus("извлекаю поток для видео $videoId… (маршрут: ${routeLabel(proxy)})")
         Thread {
             // Любая непредвиденная ошибка должна стать понятной строкой, а не вылетом приложения.
             val outcome = runCatching {
@@ -318,7 +318,7 @@ class PlayerActivity : AppCompatActivity() {
         headers: Map<String, String> = emptyMap(),
         onFailure: (() -> Boolean)? = null,
     ) {
-        val proxyAddress = if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
+        val proxyAddress = currentProxy()
         val exo = ensurePlayer()
         exo.stop()
         exo.clearMediaItems()
@@ -391,7 +391,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun probeCurrentStream() {
         val url = currentStreamUrl ?: return
         val headers = currentStreamHeaders
-        val proxyAddress = if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
+        val proxyAddress = currentProxy()
         Thread {
             val summary = try {
                 val builder = OkHttpClient.Builder()
@@ -414,9 +414,23 @@ class PlayerActivity : AppCompatActivity() {
             } catch (error: Exception) {
                 "проба не удалась: ${error.message?.take(120)}"
             }
-            runOnUiThread { renderStatus("проверка ссылки: $summary") }
+            runOnUiThread { renderStatus("проверка ссылки (${routeLabel(proxyAddress)}): $summary") }
         }.start()
     }
+
+    /**
+     * Единый маршрут для всего, что связано с видеосервисом.
+     *
+     * Важно: ссылка на поток выдаётся под конкретный адрес выхода. Если извлечение идёт
+     * через туннель, а файл запрашивается напрямую (или наоборот), сервис отвечает отказом —
+     * обычно пустым «403». Поэтому маршрут берётся из одного места для всех запросов.
+     */
+    private fun currentProxy(): String? =
+        if (tunnelCheck.isChecked) CoreHolder.status().listenAddr else null
+
+    /** Подпись текущего маршрута для отчёта. */
+    private fun routeLabel(proxyAddress: String?): String =
+        if (proxyAddress == null) "напрямую" else "через туннель ($proxyAddress)"
 
     /** Убрать клавиатуру, чтобы она не закрывала строку статуса. */
     private fun hideKeyboard() {
