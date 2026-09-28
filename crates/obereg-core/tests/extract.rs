@@ -215,3 +215,44 @@ fn outcome_serializes_for_bindings() {
         "json: {json}"
     );
 }
+
+/// Готовый поток без поля audioQuality: звук виден только по кодеку в MIME.
+const MUXED_NO_AUDIO_QUALITY: &str = r#"{"itag":22,"mimeType":"video/mp4; codecs=\"avc1.64001F, mp4a.40.2\"","bitrate":2000000,"qualityLabel":"720p","url":"https://example.invalid/v/22"}"#;
+
+/// Звуковой поток с меткой качества «tiny»: метка не должна делать его видео.
+const AUDIO_WITH_TINY_LABEL: &str = r#"{"itag":140,"mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","bitrate":128000,"qualityLabel":"tiny","url":"https://example.invalid/a/140"}"#;
+
+#[test]
+fn muxed_is_recognized_by_codecs_without_audio_quality() {
+    // Раньше такой поток считался «без звука» и отбрасывался: поле audioQuality
+    // в ответах сервиса бывает не всегда, а кодек mp4a в MIME — надёжный признак.
+    let outcome = analyze_player_response(&response(MUXED_NO_AUDIO_QUALITY, ""));
+    match outcome {
+        ExtractOutcome::Success { format, .. } => {
+            assert_eq!(format.itag, 22);
+            assert!(
+                format.is_muxed(),
+                "звук должен определяться по кодеку mp4a в MIME"
+            );
+        }
+        other => panic!("ожидался Success, получено {other:?}"),
+    }
+}
+
+#[test]
+fn audio_stream_is_never_treated_as_video() {
+    // Раньше метка качества «tiny» считалась признаком видео, и звуковой поток
+    // ломал сборку пары «видео + звук».
+    let outcome = analyze_player_response(&response(
+        "",
+        &format!("{VIDEO_ONLY_1080},{AUDIO_WITH_TINY_LABEL}"),
+    ));
+    match outcome {
+        ExtractOutcome::SeparateStreams { video, audio, .. } => {
+            assert_eq!(video.itag, 137);
+            assert_eq!(audio.itag, 140);
+            assert!(!audio.has_video, "звуковой поток не должен считаться видео");
+        }
+        other => panic!("ожидался SeparateStreams, получено {other:?}"),
+    }
+}

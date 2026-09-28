@@ -110,8 +110,20 @@ pub fn parse_formats(array: Option<&Value>) -> Result<Vec<StreamFormat>> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let has_audio = item.get("audioQuality").is_some() || mime_type.contains("audio/");
-        let has_video = item.get("qualityLabel").is_some() || mime_type.contains("video/");
+        // Как определяются дорожки:
+        // * контейнер audio/* — точно только звук, что бы ни стояло в метке качества
+        //   (у звуковых потоков бывает qualityLabel:"tiny");
+        // * в готовом потоке «видео+звук» звук виден по аудиокодеку в MIME
+        //   (например, codecs="avc1..., mp4a..."), поле audioQuality бывает не всегда;
+        // * audioQuality — запасной признак звука, если MIME неполный.
+        let audio_container = mime_type.starts_with("audio/");
+        let audio_codec = mime_type.contains("mp4a")
+            || mime_type.contains("opus")
+            || mime_type.contains("vorbis")
+            || mime_type.contains("ac-3")
+            || mime_type.contains("ec-3");
+        let has_audio = audio_container || audio_codec || item.get("audioQuality").is_some();
+        let has_video = !audio_container && mime_type.contains("video/");
         formats.push(StreamFormat {
             itag: item.get("itag").and_then(Value::as_i64).unwrap_or(0),
             mime_type,
