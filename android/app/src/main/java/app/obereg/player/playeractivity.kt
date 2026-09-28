@@ -206,10 +206,21 @@ class PlayerActivity : AppCompatActivity() {
         val proxy = CoreHolder.status().listenAddr
         renderStatus("извлекаю поток для видео $videoId…")
         Thread {
-            val outcome = YouTubeExtractor(
-                proxyAddress = proxy,
-                cookieProvider = { webViewCookies() },
-            ).resolveDetailed(videoId)
+            // Любая непредвиденная ошибка должна стать понятной строкой, а не вылетом приложения.
+            val outcome = runCatching {
+                YouTubeExtractor(
+                    proxyAddress = proxy,
+                    cookieProvider = { webViewCookies() },
+                ).resolveDetailed(videoId)
+            }.getOrElse { error ->
+                runOnUiThread {
+                    renderStatus(
+                        "извлечение прервано ошибкой: ${error.javaClass.simpleName}" +
+                            (error.message?.let { ": " + it.take(120) } ?: ""),
+                    )
+                }
+                null
+            } ?: return@Thread
             runOnUiThread {
                 val first = outcome.usable.firstOrNull()
                 if (first == null) {

@@ -259,6 +259,15 @@ object PlayerApi {
             "вход не выполнен: cookie есть, но авторизации среди них нет"
     }
 
+    /** Человекочитаемая причина любого непригодного исхода — без рискованных приведений типа. */
+    fun reasonOf(result: ExtractResult): String = when (result) {
+        is ExtractResult.Failure -> result.reason
+        is ExtractResult.NoMuxedStream ->
+            "раздельные потоки (${result.adaptive}) без звуковой дорожки"
+        is ExtractResult.Success -> "поток найден"
+        is ExtractResult.SeparateStreams -> "пара видео+звук найдена"
+    }
+
     /** Проставить в результате агента того клиента, который его выдал. */
     fun withAgent(result: ExtractResult, agent: String): ExtractResult = when (result) {
         is ExtractResult.Success -> result.copy(clientUserAgent = agent)
@@ -381,7 +390,7 @@ class YouTubeExtractor(
                 if (result.isUsable) {
                     usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
                 } else {
-                    notes += "ответ плеера: ${(result as ExtractResult.Failure).reason}"
+                    notes += "ответ плеера: ${PlayerApi.reasonOf(result)}"
                 }
             }
 
@@ -406,7 +415,7 @@ class YouTubeExtractor(
                         if (result.isUsable) {
                             usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
                         } else {
-                            notes += "мобильная страница: ${(result as ExtractResult.Failure).reason}"
+                            notes += "мобильная страница: ${PlayerApi.reasonOf(result)}"
                         }
                     }
                 }
@@ -424,8 +433,8 @@ class YouTubeExtractor(
                         profile
                     }
                     when (val result = attempt(tuned, videoId, apiKey)) {
-                        is ExtractResult.Failure -> notes += "${tuned.label}: ${result.reason}"
-                        else -> usable += result
+                        is ExtractResult.Success, is ExtractResult.SeparateStreams -> usable += result
+                        else -> notes += "${tuned.label}: ${PlayerApi.reasonOf(result)}"
                     }
                     // Двух запасных вариантов достаточно: больше — лишние запросы к сервису.
                     if (usable.size >= 3) break

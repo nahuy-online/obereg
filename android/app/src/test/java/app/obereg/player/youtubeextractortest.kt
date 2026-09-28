@@ -127,6 +127,20 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun reasonOfHandlesEveryOutcome() {
+        // Регрессия: приведение к «отказ» валило приложение вылетом,
+        // когда непригодный исход был «только раздельные потоки».
+        val format = StreamFormat(137, "video/mp4", "https://example.invalid/v", "1080p", 4000000)
+        assertEquals("сервис отказал", PlayerApi.reasonOf(ExtractResult.Failure("сервис отказал")))
+        assertTrue(
+            "в причине должно быть число потоков",
+            PlayerApi.reasonOf(ExtractResult.NoMuxedStream(5)).contains("5"),
+        )
+        assertTrue(PlayerApi.reasonOf(ExtractResult.Success(format, 1)).isNotEmpty())
+        assertTrue(PlayerApi.reasonOf(ExtractResult.SeparateStreams(format, format, 2)).isNotEmpty())
+    }
+
+    @Test
     fun onlyPlayableOutcomesCountAsUsable() {
         // Регрессия: «только раздельные потоки» ошибочно считалось пригодным исходом,
         // из-за чего попытка могла закончиться молчанием вместо понятного сообщения.
