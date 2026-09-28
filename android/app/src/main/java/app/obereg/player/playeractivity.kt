@@ -101,6 +101,14 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
         val local = url.startsWith("asset:///")
+        if (!local && YouTubeExtractor.videoIdFrom(url) != null) {
+            // Ссылка на страницу видеосервиса — это не файл: плеер такой адрес не разберёт.
+            renderStatus(
+                "это ссылка на страницу видеосервиса, а не на файл — нажмите " +
+                    "«YouTube: свой плеер (извлечение потока)»",
+            )
+            return
+        }
         val tunnel = tunnelCheck.isChecked && !local
         val proxyAddress = if (tunnel) CoreHolder.status().listenAddr else null
 

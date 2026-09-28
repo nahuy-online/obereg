@@ -2,6 +2,7 @@ package app.obereg.player
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +14,103 @@ import org.junit.Test
  * (`crates/obereg-core/tests/extract.rs`) — здесь только то, что относится к оболочке.
  */
 class YouTubeExtractorTest {
+
+    /**
+     * Регрессия: раньше в запрос уходил ключ-заглушка (`key=***`), и сервис отвечал HTTP 400.
+     */
+    @Test
+    fun profilesCarryNoHardcodedKey() {
+        // Ключ не может быть зашит в код: единственный допустимый источник — сама страница сервиса.
+        // Раньше здесь был неполный ключ, и сервис отвечал «HTTP 400».
+        for (profile in PlayerApi.profiles) {
+            val spec = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123")
+            assertTrue("${profile.label}: в адрес должен попасть переданный ключ", spec.url.contains("TEST-KEY-123"))
+            assertFalse("${profile.label}: заглушки быть не должно", spec.url.contains("***"))
+        }
+    }
+
+    @Test
+    fun requestSpecHasNoPlaceholders() {
+        val videoId = "dQw4w9WgXcQ"
+        val key = "TEST-KEY-123"
+        for (profile in PlayerApi.profiles) {
+            val spec = PlayerApi.spec(profile, videoId, key)
+            val joined = spec.url + spec.body + spec.headers.values.joinToString()
+            assertFalse("${profile.label}: в запросе осталась заглушка", joined.contains("***"))
+            assertFalse("${profile.label}: в ключе многоточие", joined.contains("…"))
+            assertTrue("${profile.label}: идентификатор видео должен быть в теле", spec.body.contains(videoId))
+            assertEquals(
+                "${profile.label}: заголовок имени клиента",
+                profile.clientHeaderName,
+                spec.headers["X-Youtube-Client-Name"],
+            )
+            assertEquals(
+                "${profile.label}: заголовок версии клиента",
+                profile.clientVersion,
+                spec.headers["X-Youtube-Client-Version"],
+            )
+        }
+    }
+
+    @Test
+    fun androidProfileCarriesSdkVersion() {
+        val android = PlayerApi.profiles.first { it.label == "ANDROID" }
+        assertTrue(
+            "у мобильного клиента должна быть версия системы",
+            PlayerApi.spec(android, "dQw4w9WgXcQ", "TEST-KEY-123").body.contains("androidSdkVersion"),
+        )
+    }
+
+    @Test
+    fun extractsPlayerResponseFromPage() {
+        // Структура как на настоящей странице: ответ лежит в переменной, вокруг — другой код,
+        // а внутри самого ответа встречаются и скобки, и кавычки внутри строк.
+        val html = """
+            <html><script>var meta = {"a":1};</script>
+            <script>var ytInitialPlayerResponse = {"playabilityStatus":{"status":"OK"},
+            "streamingData":{"formats":[{"itag":22,"mimeType":"video/mp4","url":"https://example.invalid/v/22","qualityLabel":"720p {не скобка}","bitrate":2000000}],"adaptiveFormats":[]}};</script>
+            <script>var other = 1;</script></html>
+        """
+        val json = PlayerApi.extractPlayerResponse(html)
+        assertTrue("ответ плеера должен найтись", json != null)
+        val parsed = JSONObject(json!!)
+        assertEquals("OK", parsed.getJSONObject("playabilityStatus").getString("status"))
+        assertEquals(22, parsed.getJSONObject("streamingData").getJSONArray("formats").getJSONObject(0).getInt("itag"))
+    }
+
+    @Test
+    fun handlesBracesInsideStrings() {
+        val text = """x = {"text":"a } b { c","inner":{"k":1}};"""
+        val start = text.indexOf('{')
+        val json = PlayerApi.balancedObject(text, start)
+        assertEquals("""{"text":"a } b { c","inner":{"k":1}}""", json)
+        assertTrue(JSONObject(json!!).getString("text") == "a } b { c")
+    }
+
+    @Test
+    fun returnsNullWhenPageHasNoPlayerData() {
+        assertNull(PlayerApi.extractPlayerResponse("<html>ничего полезного</html>"))
+        assertNull(PlayerApi.extractPlayerResponse("ytInitialPlayerResponse без скобок"))
+    }
+
+    @Test
+    fun extractsKeyAndVersionFromPage() {
+        val html = """<script>{"INNERTUBE_API_KEY":"KEY-FROM-PAGE","INNERTUBE_CLIENT_VERSION":"2.2024.01.00.00"}</script>"""
+        assertEquals("KEY-FROM-PAGE", PlayerApi.extractApiKey(html))
+        assertEquals("2.2024.01.00.00", PlayerApi.extractClientVersion(html))
+        assertNull(PlayerApi.extractApiKey("<html>нет ключа</html>"))
+    }
+
+    @Test
+    fun watchUrlCarriesVideoId() {
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=ru", PlayerApi.watchUrl("dQw4w9WgXcQ"))
+    }
+
+    @Test
+    fun excerptShowsShortServiceAnswer() {
+        assertTrue("длинный ответ обрезается", YouTubeExtractor.excerpt("a".repeat(500)).length <= 221)
+        assertEquals("пустой ответ", YouTubeExtractor.excerpt("  \n  "))
+    }
 
     @Test
     fun extractsVideoIdFromAllLinkForms() {
