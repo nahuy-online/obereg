@@ -81,6 +81,17 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{}", pretty(&probe)?);
             Ok(())
         }
+        "extract-json" => {
+            // Живая проверка извлечения без телефона: читаем уже сохранённый ответ
+            // сервиса и прогоняем через логику ядра. Так удобно проверять,
+            // что отдаёт сервис, если запрос сделан отдельно.
+            let path = flag(args, "--file").ok_or_else(|| "--file is required".to_string())?;
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|error| format!("не читается файл {path}: {error}"))?;
+            let outcome = obereg_core::extract::analyze_player_response(&raw);
+            println!("{}", obereg_core::extract::outcome_to_json(&outcome));
+            Ok(())
+        }
         "journal" => {
             let session = session_from_args(args)?;
             let limit: usize = flag(args, "--limit")
