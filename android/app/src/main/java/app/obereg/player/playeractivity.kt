@@ -109,6 +109,23 @@ class PlayerActivity : AppCompatActivity() {
 
         renderStatus("готово к воспроизведению")
 
+        // Поток, пойманный у встроенного браузера: его проверку прошёл движок браузера,
+        // поэтому ссылка обычно воспроизводится, а рекламы у нас нет.
+        val streamVideo = intent?.getStringExtra(EXTRA_STREAM_VIDEO)
+        if (!streamVideo.isNullOrEmpty()) {
+            val headers = PlayerApi.mediaHeaders(PlayerApi.BROWSER_USER_AGENT, webViewCookies())
+            val streamAudio = intent?.getStringExtra(EXTRA_STREAM_AUDIO)
+            currentTitle = "поток со страницы"
+            if (!streamAudio.isNullOrEmpty() && streamAudio != streamVideo) {
+                playSeparate(streamVideo, streamAudio, headers)
+                renderStatus("свой плеер: играю пойманный поток — видео и звук вместе")
+            } else {
+                play(streamVideo, headers)
+                renderStatus("свой плеер: играю пойманный поток")
+            }
+            return
+        }
+
         // Запуск из каталога: ссылка и название приходят во вложениях.
         val incomingUrl = intent?.getStringExtra(EXTRA_URL)
         if (!incomingUrl.isNullOrEmpty()) {
@@ -503,5 +520,9 @@ class PlayerActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_URL = "obereg.url"
         const val EXTRA_TITLE = "obereg.title"
+
+        /** Поток, пойманный у встроенного браузера. */
+        const val EXTRA_STREAM_VIDEO = "obereg.stream.video"
+        const val EXTRA_STREAM_AUDIO = "obereg.stream.audio"
     }
 }

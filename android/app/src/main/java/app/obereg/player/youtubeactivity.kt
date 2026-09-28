@@ -41,6 +41,10 @@ class YouTubeActivity : AppCompatActivity() {
     private lateinit var urlInput: EditText
     private lateinit var searchInput: EditText
     private lateinit var statusView: TextView
+
+    /** Поток, пойманный у встроенного браузера (уже с подтверждением сеанса). */
+    private var capturedVideo: String? = null
+    private var capturedAudio: String? = null
     private var routeNote: String = ""
     private var currentVideoId: String = ""
     private var useEmbed: Boolean = false
@@ -75,6 +79,31 @@ class YouTubeActivity : AppCompatActivity() {
         }
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
+            /**
+             * Перехват потока, который играет сам браузер.
+             *
+             * Проверку подлинности клиента проходит движок браузера, и его ссылка —
+             * с уже выданным подтверждением. Мы её запоминаем (ничего не подменяем,
+             * запрос идёт как обычно), чтобы потом отдать нашему плееру: там есть фон
+             * и нет рекламы.
+             */
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?,
+            ): WebResourceResponse? {
+                val url = request?.url?.toString().orEmpty()
+                when (PlayerApi.streamKind(url)) {
+                    "video" -> {
+                        capturedVideo = PlayerApi.streamUrlForPlayer(url)
+                        render("пойман видеопоток — можно играть в своём плеере")
+                    }
+                    "audio" -> {
+                        capturedAudio = PlayerApi.streamUrlForPlayer(url)
+                    }
+                }
+                return null
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 render("загружено: ${url ?: "—"}")
             }
@@ -141,6 +170,21 @@ class YouTubeActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCheckAccess).setOnClickListener {
             render("проверяю доступ к YouTube из WebView…")
             webView.loadUrl("https://www.youtube.com/generate_204")
+        }
+        findViewById<Button>(R.id.btnPlayCaptured).setOnClickListener {
+            val video = capturedVideo
+            if (video == null) {
+                render(
+                    "потока пока нет: откройте видео на этом экране и дайте ему начать играть, " +
+                        "затем нажмите эту кнопку",
+                )
+                return@setOnClickListener
+            }
+            val intent = Intent(this, PlayerActivity::class.java)
+            intent.putExtra(PlayerActivity.EXTRA_STREAM_VIDEO, video)
+            capturedAudio?.let { intent.putExtra(PlayerActivity.EXTRA_STREAM_AUDIO, it) }
+            startActivity(intent)
+            render("передал пойманный поток в свой плеер")
         }
         findViewById<Button>(R.id.btnBackToApp).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnPresetYt1).setOnClickListener {

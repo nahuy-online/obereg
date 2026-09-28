@@ -135,6 +135,13 @@
             android:text="@string/youtube_back" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnPlayCaptured"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/youtube_play_captured" />
+
     <TextView
         android:id="@+id/youtubeStatus"
         android:layout_width="match_parent"

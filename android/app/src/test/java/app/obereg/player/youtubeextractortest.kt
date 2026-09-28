@@ -127,6 +127,29 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun detectsStreamUrlsFromBrowser() {
+        val capture = "https://rr3---sn-abc.googlevideo.com/videoplayback?mime=video%2Fmp4&range=0-65536&itag=137"
+        assertTrue("поток должен распознаваться", PlayerApi.looksLikeStream(capture))
+        assertEquals("video", PlayerApi.streamKind(capture))
+        assertEquals(
+            "audio",
+            PlayerApi.streamKind("https://rr3---sn-abc.googlevideo.com/videoplayback?mime=audio%2Fmp4&itag=140"),
+        )
+        assertNull("страница — не поток", PlayerApi.streamKind("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertNull("картинка — не поток", PlayerApi.streamKind("https://i.ytimg.com/vi/x/hq.jpg"))
+    }
+
+    @Test
+    fun capturedUrlLosesBrowserRange() {
+        // Браузер запрашивает кусками; плеер управляет диапазонами сам.
+        val capture = "https://rr3.googlevideo.com/videoplayback?itag=137&range=65536-131072&rn=2&mime=video%2Fmp4"
+        val forPlayer = PlayerApi.streamUrlForPlayer(capture)
+        assertFalse("диапазон браузера убирается", forPlayer.contains("range="))
+        assertFalse("номер куска убирается", forPlayer.contains("rn="))
+        assertTrue("остальное на месте", forPlayer.contains("itag=137") && forPlayer.contains("mime=video"))
+    }
+
+    @Test
     fun probeSummaryShowsServiceReason() {
         // «403» сам по себе не говорит ничего: причину сервис пишет в теле ответа.
         assertEquals("HTTP 200: ok", PlayerApi.probeSummary(200, "  ok  "))

@@ -275,6 +275,28 @@ object PlayerApi {
         is ExtractResult.SeparateStreams -> "пара видео+звук найдена"
     }
 
+    /** Похоже ли на поток видеофайла (а не на страницу или картинку). */
+    fun looksLikeStream(url: String): Boolean =
+        url.contains("googlevideo.com") && url.contains("videoplayback")
+
+    /** Что это за поток: «video», «audio» или ничего. */
+    fun streamKind(url: String): String? = when {
+        !looksLikeStream(url) -> null
+        url.contains("mime=video") -> "video"
+        url.contains("mime=audio") -> "audio"
+        else -> null
+    }
+
+    /**
+     * Привести пойманный адрес к виду, пригодному для нашего плеера.
+     *
+     * Браузер запрашивает файл кусками и добавляет в адрес диапазон (`range=…`).
+     * Плеер сам управляет диапазонами, поэтому этот параметр нужно убрать — иначе
+     * он запросит только один кусок и остановится.
+     */
+    fun streamUrlForPlayer(url: String): String =
+        url.replace(Regex("[&?]range=[^&]*"), "").replace(Regex("[&?]rn=[^&]*"), "")
+
     /** Проставить в результате агента того клиента, который его выдал. */
     fun withAgent(result: ExtractResult, agent: String): ExtractResult = when (result) {
         is ExtractResult.Success -> result.copy(clientUserAgent = agent)
