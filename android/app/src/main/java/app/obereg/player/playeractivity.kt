@@ -43,6 +43,9 @@ class PlayerActivity : AppCompatActivity() {
     private var currentTitle: String = ""
     private var lastPlayerEvent: String = "событий ещё не было"
 
+    /** Последнее значимое сообщение (исход извлечения, ошибка) — не затирается событиями плеера. */
+    private var statusMessage: String = "готово к работе"
+
     private val presets = listOf(
         "asset:///sample.mp4",
         "https://download.samplelib.com/mp4/sample-5s.mp4",
@@ -111,7 +114,7 @@ class PlayerActivity : AppCompatActivity() {
             it.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     lastPlayerEvent = "ОШИБКА ${error.errorCodeName}: ${error.message}"
-                    renderStatus("воспроизведение не удалось")
+                    renderStatus("воспроизведение не удалось: ${error.errorCodeName}")
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
@@ -122,7 +125,8 @@ class PlayerActivity : AppCompatActivity() {
                         Player.STATE_ENDED -> "завершено"
                         else -> "состояние $state"
                     }
-                    renderStatus("состояние воспроизведения обновлено")
+                    // Важно: состояние плеера не должно затирать исход извлечения.
+                    renderPanel()
                 }
             })
         }
@@ -180,8 +184,8 @@ class PlayerActivity : AppCompatActivity() {
                         )
                     }
                     is ExtractResult.NoMuxedStream -> renderStatus(
-                        "сервис отдал только раздельные потоки (${result.adaptive}): " +
-                            "для них нужна склейка — она в следующем шаге, а сейчас откройте экран YouTube",
+                        "сервис отдал только раздельные потоки (${result.adaptive}), но без звуковой дорожки — " +
+                            "играть нечего; откройте экран YouTube и попробуйте другой маршрут",
                     )
                     is ExtractResult.Failure -> renderStatus("извлечение не удалось: ${result.reason}")
                 }
@@ -242,9 +246,20 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun renderStatus(message: String) {
+        statusMessage = message
+        renderPanel()
+    }
+
+    /**
+     * Собрать панель статуса заново, не теряя последний значимый исход.
+     *
+     * Раньше события плеера вызывали renderStatus и затирали исход извлечения
+     * (он пропадал через долю секунды после старта воспроизведения).
+     */
+    private fun renderPanel() {
         val status = runCatching { CoreHolder.status() }.getOrNull()
         val core = buildString {
-            appendLine(message)
+            appendLine("исход: $statusMessage")
             appendLine("плеер: $lastPlayerEvent")
             if (status != null) {
                 appendLine("ядро: ${status.state} / ${status.mode} / прокси ${status.listenAddr ?: "нет"}")

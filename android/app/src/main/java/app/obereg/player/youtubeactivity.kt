@@ -242,8 +242,10 @@ class YouTubeActivity : AppCompatActivity() {
             appendLine(message)
             if (routeNote.isNotEmpty()) appendLine(routeNote)
             if (status != null) {
-                append("ядро: ${status.state} / ${status.mode} / соединений: ${status.sessionsServed}")
+                appendLine("ядро: ${status.state} / ${status.mode} / соединений: ${status.sessionsServed}")
             }
+            // Подсказка: исходы извлечения видны на экране плеера, а не здесь — это разные экраны.
+            append("свой плеер: экран «Открыть плеер» → кнопка «YouTube: свой плеер»")
         }
     }
 
