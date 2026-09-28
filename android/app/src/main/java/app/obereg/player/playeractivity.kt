@@ -75,6 +75,21 @@ class PlayerActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCheckLogin).setOnClickListener {
             renderStatus("проверка входа: ${PlayerApi.loginStateLabel(webViewCookies())}")
         }
+        findViewById<Button>(R.id.btnYouTubeScreen).setOnClickListener {
+            // Запасной путь: экран видеосервиса внутри приложения — там проверка сервиса проходит сама.
+            val raw = urlInput.text.toString().trim()
+            val id = YouTubeExtractor.videoIdFrom(raw)
+            val intent = android.content.Intent(this, YouTubeActivity::class.java)
+            if (id != null) intent.putExtra(YouTubeActivity.EXTRA_VIDEO_ID, id)
+            startActivity(intent)
+            renderStatus(
+                if (id == null) {
+                    "открыл экран YouTube; вставьте ссылку в поле и нажмите «Открыть»"
+                } else {
+                    "открыл экран YouTube с видео $id"
+                },
+            )
+        }
         findViewById<Button>(R.id.btnStopPlayback).setOnClickListener { stopPlayback() }
         findViewById<Button>(R.id.btnPreset1).setOnClickListener {
             urlInput.setText(presets[0])
@@ -126,6 +141,8 @@ class PlayerActivity : AppCompatActivity() {
                         "воспроизведение не удалось: ${error.errorCodeName}" +
                             if (cause.isNullOrBlank()) "" else " — $cause",
                     )
+                } else {
+                    renderPanel()
                 }
             }
 
@@ -230,7 +247,10 @@ class PlayerActivity : AppCompatActivity() {
                     } else {
                         ""
                     }
-                    renderStatus("извлечение не удалось: ${outcome.notes.joinToString(" | ")}$hint")
+                    renderStatus(
+                        "извлечение не удалось: ${outcome.notes.joinToString(" | ")}$hint" +
+                            " — рабочий путь: кнопка «Экран YouTube»",
+                    )
                     return@runOnUiThread
                 }
                 currentTitle = "YouTube $videoId"
