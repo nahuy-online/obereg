@@ -32,7 +32,8 @@ $browserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 
 # Те же профили клиентов, что и в приложении (YouTubeExtractor.kt → PlayerApi).
 $profiles = @(
-    @{ Label = "ANDROID"; ClientName = "ANDROID"; ClientVersion = "19.09.37"; ClientHeader = "3"
+    @{ Label = "TV_EMBEDDED"; ClientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER"; ClientVersion = "2.0"; ClientHeader = "85"; UserAgent = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 7.0) AppleWebKit/537.36 (KHTML, like Gecko) 94.0.4606.31/7.0 TV Safari/537.36"; ExtraContext = @{}; EmbedUrl = "https://www.youtube.com/" },
+    @{ Label = "WEB_EMBEDDED"; ClientName = "WEB_EMBEDDED_PLAYER"; ClientVersion = "1.20240723.01.00"; ClientHeader = "56"; UserAgent = $browserAgent; ExtraContext = @{}; EmbedUrl = "https://www.youtube.com/" },    @{ Label = "ANDROID"; ClientName = "ANDROID"; ClientVersion = "19.09.37"; ClientHeader = "3"
        UserAgent = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
        ExtraContext = @{ androidSdkVersion = 30 } },
     @{ Label = "IOS"; ClientName = "IOS"; ClientVersion = "19.09.3"; ClientHeader = "5"

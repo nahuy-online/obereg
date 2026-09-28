@@ -51,6 +51,8 @@ sealed interface ExtractResult {
  * Ключ здесь намеренно отсутствует: настоящий ключ берётся у самого сервиса
  * (со страницы просмотра), чтобы в коде не было ни зашитых, ни тем более
  * неполных ключей. Неполный ключ — уже однажды полученная ошибка «HTTP 400».
+ * `embedUrl` — для встроенных клиентов: им сервису нужно сообщить,
+ * откуда видео «встроено». Эти клиенты обходятся без токена подтверждения.
  */
 data class ClientProfile(
     val label: String,
@@ -59,6 +61,7 @@ data class ClientProfile(
     val userAgent: String,
     val clientHeaderName: String,
     val extraContext: Map<String, Any>,
+    val embedUrl: String? = null,
 )
 
 /** Готовый HTTP-запрос: адрес, тело, заголовки. Вынесен отдельно, чтобы проверялся тестами. */
@@ -90,8 +93,31 @@ object PlayerApi {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 
-    /** Порядок попыток для запасного пути: сначала мобильные клиенты, затем веб. */
+    /**
+     * Порядок попыток: сначала встроенные клиенты — им не нужен токен подтверждения
+     * (PO token), который мобильные клиенты обязаны предоставлять с 2024 года;
+     * затем мобильные и веб.
+     */
     val profiles: List<ClientProfile> = listOf(
+        ClientProfile(
+            label = "TV_EMBEDDED",
+            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientVersion = "2.0",
+            userAgent = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 7.0) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) 94.0.4606.31/7.0 TV Safari/537.36",
+            clientHeaderName = "85",
+            extraContext = emptyMap(),
+            embedUrl = "https://www.youtube.com/",
+        ),
+        ClientProfile(
+            label = "WEB_EMBEDDED",
+            clientName = "WEB_EMBEDDED_PLAYER",
+            clientVersion = "1.20240723.01.00",
+            userAgent = BROWSER_USER_AGENT,
+            clientHeaderName = "56",
+            extraContext = emptyMap(),
+            embedUrl = "https://www.youtube.com/",
+        ),
         ClientProfile(
             label = "ANDROID",
             clientName = "ANDROID",
@@ -132,8 +158,13 @@ object PlayerApi {
         for ((name, value) in profile.extraContext) {
             client.put(name, value)
         }
+        val context = JSONObject().put("client", client)
+        if (profile.embedUrl != null) {
+            // Встроенным клиентам нужно указать, откуда видео «встроено».
+            context.put("thirdParty", JSONObject().put("embedUrl", profile.embedUrl))
+        }
         return JSONObject()
-            .put("context", JSONObject().put("client", client))
+            .put("context", context)
             .put("videoId", videoId)
             .put("contentCheckOk", true)
             .put("racyCheckOk", true)
@@ -233,6 +264,8 @@ object PlayerApi {
 class YouTubeExtractor(
     private val proxyAddress: String? = null,
     private val client: OkHttpClient = buildClient(proxyAddress),
+    /** Cookie домена сервиса (например, из встроенного браузера, где проверка уже пройдена). */
+    private val cookieProvider: (() -> String?)? = null,
 ) {
 
     /**
@@ -294,11 +327,12 @@ class YouTubeExtractor(
 
     /** Забрать страницу или текст по адресу. */
     private fun fetch(url: String, userAgent: String): Fetch {
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url(url)
             .header("User-Agent", userAgent)
             .header("Accept-Language", "ru-RU,ru;q=0.9")
-            .build()
+        cookieHeader()?.let { builder.header("Cookie", it) }
+        val request = builder.build()
         return try {
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
@@ -315,11 +349,12 @@ class YouTubeExtractor(
 
     /** Отправить запрос к программному интерфейсу. */
     private fun post(spec: RequestSpec): Fetch {
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url(spec.url)
             .post(spec.body.toRequestBody("application/json".toMediaType()))
             .apply { spec.headers.forEach { (name, value) -> header(name, value) } }
-            .build()
+        cookieHeader()?.let { builder.header("Cookie", it) }
+        val request = builder.build()
         return try {
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
@@ -333,6 +368,11 @@ class YouTubeExtractor(
             Fetch.Failed("сеть недоступна: ${error.message}")
         }
     }
+
+    /** Заголовок Cookie, если источник его дал. Ошибку источника не пробрасываем: без cookie просто пробуем снова. */
+    private fun cookieHeader(): String? =
+        cookieProvider?.let { provider -> runCatching(provider).getOrNull() }
+            ?.takeIf { it.isNotBlank() }
 
     companion object {
         /** Совместимость: адрес сервиса, как раньше. */

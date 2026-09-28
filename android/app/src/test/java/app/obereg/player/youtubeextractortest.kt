@@ -107,6 +107,29 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun embeddedProfilesGoFirstAndCarryEmbedUrl() {
+        // С 2024 года мобильные клиенты обязаны предоставлять токен подтверждения (PO token),
+        // поэтому первыми идут встроенные — им токен не нужен.
+        val labels = PlayerApi.profiles.map { it.label }
+        assertTrue("первым должен идти ТВ-клиент: $labels", labels.first() == "TV_EMBEDDED")
+        assertTrue("вторым — веб-встроенный: $labels", labels[1] == "WEB_EMBEDDED")
+        for (profile in PlayerApi.profiles.filter { it.embedUrl != null }) {
+            val body = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123").body
+            assertTrue(
+                "${profile.label}: встроенный клиент должен сообщать thirdParty.embedUrl",
+                body.contains("\"embedUrl\"") && body.contains("thirdParty"),
+            )
+        }
+        for (profile in PlayerApi.profiles.filter { it.embedUrl == null }) {
+            val body = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123").body
+            assertFalse(
+                "${profile.label}: обычному клиенту thirdParty не нужен",
+                body.contains("thirdParty"),
+            )
+        }
+    }
+
+    @Test
     fun excerptShowsShortServiceAnswer() {
         assertTrue("длинный ответ обрезается", YouTubeExtractor.excerpt("a".repeat(500)).length <= 221)
         assertEquals("пустой ответ", YouTubeExtractor.excerpt("  \n  "))

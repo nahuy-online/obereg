@@ -171,7 +171,10 @@ class PlayerActivity : AppCompatActivity() {
         val proxy = CoreHolder.status().listenAddr
         renderStatus("извлекаю поток для видео $videoId…")
         Thread {
-            val result = YouTubeExtractor(proxyAddress = proxy).resolve(videoId)
+            val result = YouTubeExtractor(
+                proxyAddress = proxy,
+                cookieProvider = { webViewCookies() },
+            ).resolve(videoId)
             runOnUiThread {
                 when (result) {
                     is ExtractResult.Success -> {
@@ -246,6 +249,16 @@ class PlayerActivity : AppCompatActivity() {
         }
         return OkHttpDataSource.Factory(clientBuilder.build())
     }
+
+    /**
+     * Cookie домена видеосервиса из встроенного браузера.
+     *
+     * Сессия экрана YouTube уже проходит проверки сервиса, поэтому её cookie
+     * заметно повышают шансы, что и запрос извлечения не попадёт под проверку «не бот».
+     */
+    private fun webViewCookies(): String? = runCatching {
+        android.webkit.CookieManager.getInstance().getCookie("https://www.youtube.com/")
+    }.getOrNull()
 
     /** Убрать клавиатуру, чтобы она не закрывала строку статуса. */
     private fun hideKeyboard() {
