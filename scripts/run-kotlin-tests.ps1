@@ -1,4 +1,4 @@
-# Запуск JVM-тестов оболочки без Gradle.
+﻿# Запуск JVM-тестов оболочки без Gradle.
 #
 # Зачем: на некоторых машинах сетевой фильтр (VPN-драйвер) ломает петлю,
 # и тогда Gradle не может подключиться к своему тестовому процессу
@@ -56,6 +56,7 @@ $sources = @(
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\DiagLog.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\Library.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\AppSettings.kt"),
+    (Join-Path $repo "android\app\src\main\java\app\obereg\player\Feed.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\core\CoreBridge.kt"),
     (Join-Path $repo "android\app\src\test\java\app\obereg\player\YouTubeExtractorTest.kt")
 )

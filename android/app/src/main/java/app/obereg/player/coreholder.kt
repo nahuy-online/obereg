@@ -200,6 +200,14 @@ object CoreHolder {
         return CoreBridge.analyzePlayerResponseJson(handle, playerResponseJson)
     }
 
+    /** Лента: разбор ответа раздела и вставка нашей рекомендации (логика — в ядре). */
+    fun analyzeFeed(feedJson: String, promoId: String, promoTitle: String, position: Int): String {
+        if (handle == 0L) {
+            return CoreBridge.errorJson("сессия не создана")
+        }
+        return CoreBridge.analyzeFeedJson(handle, feedJson, promoId, promoTitle, position)
+    }
+
     /** Запустить сессию (JSON-ответ ядра). */
     fun start(): String {
         if (handle == 0L) return CoreBridge.errorJson("сессия не создана")

@@ -45,6 +45,13 @@ object CoreBridge {
     private external fun catalogSearch(handle: Long, query: String, limit: Int): String
     private external fun localHttpProxyAddr(handle: Long): String
     private external fun analyzePlayerResponse(handle: Long, playerResponseJson: String): String
+    private external fun analyzeFeed(
+        handle: Long,
+        feedJson: String,
+        promoId: String,
+        promoTitle: String,
+        position: Int,
+    ): String
 
     // --- Безопасные обёртки ---
 
@@ -90,6 +97,15 @@ object CoreBridge {
     /** Разбор ответа видеосервиса силами ядра: выбор потока для своего плеера. */
     fun analyzePlayerResponseJson(handle: Long, json: String): String =
         call(handle) { analyzePlayerResponse(handle, json) }
+
+    /** Разбор ленты и вставка нашей рекомендации: JSON-массив роликов. */
+    fun analyzeFeedJson(
+        handle: Long,
+        feedJson: String,
+        promoId: String,
+        promoTitle: String,
+        position: Int,
+    ): String = call(handle) { analyzeFeed(handle, feedJson, promoId, promoTitle, position) }
 
     /** JSON-объект ошибки в том же формате, что возвращает ядро. */
     fun errorJson(message: String): String = """{"error":"${message.replace('"', '\'')}"}"""

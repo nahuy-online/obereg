@@ -45,6 +45,12 @@
             android:text="@string/action_open_profile" />
 
         <Button
+            android:id="@+id/btnOpenFeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_open_feed" />
+
+        <Button
             android:id="@+id/btnOpenPlayer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

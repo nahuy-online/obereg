@@ -475,5 +475,32 @@ class YouTubeExtractorTest {
         assertFalse(SettingsCodec.looksLikeVideoId(null))
     }
 
+    @Test
+    fun feedMapsItems() {
+        val core = """[{"video_id":"aaaaaaaaaaa","title":"Первый","channel":"Канал А","duration":"12:34","views":"1 234 просмотра","injected":false},{"video_id":"zzzzzzzzzzz","title":"Наш выбор","channel":"","duration":null,"views":null,"injected":true}]"""
+        val items = FeedCodec.mapItems(core)
+        assertEquals(2, items.size)
+        assertEquals("aaaaaaaaaaa", items[0].videoId)
+        assertEquals("12:34", items[0].duration)
+        assertEquals("1 234 просмотра", items[0].views)
+        assertTrue("наша рекомендация помечена", items[1].injected)
+        assertNull("пустых полей нет", items[1].duration)
+        val label = FeedCodec.label(items[1])
+        assertTrue("значок рекомендации в подписи: $label", label.startsWith("★"))
+        assertTrue("канал и длительность в подписи", FeedCodec.label(items[0]).contains("Канал А"))
+    }
 
+    @Test
+    fun feedIgnoresBrokenCoreAnswer() {
+        assertTrue(FeedCodec.mapItems("{не массив}").isEmpty())
+        assertTrue(FeedCodec.mapItems("""[{"title":"без id"}]""").isEmpty())
+    }
+
+    @Test
+    fun extractsFeedDataFromPage() {
+        val html = """<script>var ytInitialData = {"contents":{"richGridRenderer":{"contents":[{"richItemRenderer":{"content":{"videoRenderer":{"videoId":"aaaaaaaaaaa","title":{"runs":[{"text":"Из ленты"}]}}}}}]}}};</script>"""
+        val data = PlayerApi.extractInitialData(html)
+        assertTrue("данные ленты должны найтись", data != null && data.contains("videoRenderer"))
+        assertNull("страница без данных", PlayerApi.extractInitialData("<html>пусто</html>"))
+    }
 }

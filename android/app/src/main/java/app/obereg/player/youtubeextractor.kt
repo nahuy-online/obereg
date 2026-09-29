@@ -365,6 +365,32 @@ object PlayerApi {
         return null
     }
 
+    /**
+     * Достать данные раздела (ленты) из страницы: сервис кладёт их в `ytInitialData`.
+     *
+     * Лента о том же, что и ответ плеера, только переменная другая — поэтому ищем
+     * её тем же устойчивым способом: с учётом вложенности и скобок внутри строк.
+     */
+    fun extractInitialData(html: String): String? {
+        val marker = "ytInitialData"
+        var from = html.indexOf(marker)
+        while (from >= 0) {
+            val brace = html.indexOf('{', from)
+            if (brace < 0) return null
+            val candidate = balancedObject(html, brace)
+            if (candidate != null &&
+                (candidate.contains("\"videoRenderer\"") ||
+                    candidate.contains("\"richItemRenderer\"") ||
+                    candidate.contains("\"gridVideoRenderer\"") ||
+                    candidate.contains("\"contents\""))
+            ) {
+                return candidate
+            }
+            from = html.indexOf(marker, from + marker.length)
+        }
+        return null
+    }
+
     /** Ключ программного интерфейса, который сервис сам сообщает на странице. */
     fun extractApiKey(html: String): String? =
         Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)

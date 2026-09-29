@@ -79,6 +79,12 @@ class MainActivity : AppCompatActivity() {
                 startActivity(android.content.Intent(this, LibraryActivity::class.java))
             }
         }
+        findViewById<Button>(R.id.btnOpenFeed).setOnClickListener {
+            log("нажато: лента")
+            safe("открытие ленты") {
+                startActivity(android.content.Intent(this, FeedActivity::class.java))
+            }
+        }
         findViewById<Button>(R.id.btnOpenProfile).setOnClickListener {
             log("нажато: профиль и настройки")
             safe("открытие профиля") {

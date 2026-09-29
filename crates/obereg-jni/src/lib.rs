@@ -236,3 +236,40 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_analyzePlayerResponse(
         Ok(obereg_core::extract::outcome_to_json(&outcome))
     })
 }
+
+/// `analyzeFeed(handle, feedJson, promoId, promoTitle, position): String` — разбор ленты
+/// сервиса и (если задан ролик) вставка нашей рекомендации на указанную позицию.
+///
+/// Возвращает JSON-массив роликов; ошибка — объект с полем `error`, как и везде.
+#[no_mangle]
+pub extern "system" fn Java_app_obereg_core_CoreBridge_analyzeFeed(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    feed_json: JString,
+    promo_id: JString,
+    promo_title: JString,
+    position: jint,
+) -> jstring {
+    let Some(json) = rust_string(&mut env, feed_json) else {
+        return java_string(&mut env, error_json("feed json is null"));
+    };
+    let promo_id = rust_string(&mut env, promo_id).unwrap_or_default();
+    let promo_title = rust_string(&mut env, promo_title).unwrap_or_default();
+    let position = if position < 1 { 3 } else { position as usize };
+    with_session(&mut env, handle, move |_session| {
+        let items = obereg_core::feed::parse_feed(&json)?;
+        let final_items = if promo_id.trim().is_empty() {
+            items
+        } else {
+            let title = promo_title.trim();
+            let promo = obereg_core::feed::promo_from(
+                &promo_id,
+                if title.is_empty() { None } else { Some(title) },
+            );
+            obereg_core::feed::inject(&items, &promo, position)
+        };
+        serde_json::to_string(&final_items)
+            .map_err(|error| CoreError::Config(format!("лента: не собрана в JSON: {error}")))
+    })
+}
