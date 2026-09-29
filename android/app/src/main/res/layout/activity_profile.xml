@@ -105,6 +105,13 @@
         android:text="@string/profile_challenge_probe" />
 
     <Button
+        android:id="@+id/btnChallengeDetail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/profile_challenge_detail" />
+
+    <Button
         android:id="@+id/btnProfileReport"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

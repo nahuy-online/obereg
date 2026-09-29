@@ -95,6 +95,12 @@ class ProfileActivity : AppCompatActivity() {
             tokenWebView.evaluateJavascript(TokenProbe.challengeScript()) { _ -> }
             pollChallenge(1)
         }
+        findViewById<Button>(R.id.btnChallengeDetail).setOnClickListener {
+            render("разбор проверки: обращаюсь из движка…")
+            DiagLog.add("токены: разбор проверки")
+            tokenWebView.evaluateJavascript(TokenProbe.challengeDetailScript()) { _ -> }
+            pollChallengeDetail(1)
+        }
         findViewById<Button>(R.id.btnProfileReport).setOnClickListener { copyReport() }
         findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
         findViewById<Button>(R.id.btnProfileBack).setOnClickListener { finish() }
@@ -121,6 +127,27 @@ class ProfileActivity : AppCompatActivity() {
         )
     }
 
+    /** Опрос разбора проверки (шаг 3) — тем же способом, что и сам запрос. */
+    private fun pollChallengeDetail(attempt: Int) {
+        tokenWebView.postDelayed({
+            tokenWebView.evaluateJavascript(TokenProbe.challengePollScript()) { raw ->
+                val (result, stages) = TokenProbe.splitPoll(raw)
+                if (result.isEmpty()) {
+                    if (attempt < 12) {
+                        pollChallengeDetail(attempt + 1)
+                    } else {
+                        val tail = if (stages.isEmpty()) "этапов нет" else "этапы: $stages"
+                        DiagLog.add("токены: разбор проверки — ответа нет ($tail)")
+                        render("разбор проверки: ответа нет — $tail")
+                    }
+                    return@evaluateJavascript
+                }
+                val summary = TokenProbe.summarizeChallengeDetail(result)
+                DiagLog.add("токены: $summary")
+                render("разбор проверки: $summary")
+            }
+        }, 1_000)
+    }
     /** Опрос результата проверки: движок не ждёт сетевых вызовов, поэтому спрашиваем повторно. */
     private fun pollChallenge(attempt: Int) {
         tokenWebView.postDelayed({

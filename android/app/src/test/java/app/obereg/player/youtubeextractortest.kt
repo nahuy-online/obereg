@@ -686,4 +686,17 @@ class YouTubeExtractorTest {
         TokenStore.clear()
         assertEquals("очистка работает", 0, TokenStore.size())
     }
+
+    @Test
+    fun challengeDetailSummary() {
+        val ok = """{"status":200,"length":36634,"challengeKeys":["interpreterHash","program","globalName"],"botguardKeys":["program","interpreterUrl"],"loadedKeys":["a","b"],"programType":"string"}"""
+        val summary = TokenProbe.summarizeChallengeDetail(ok)
+        assertTrue("код: $summary", summary.contains("HTTP 200"))
+        assertTrue("что в проверке: $summary", summary.contains("interpreterHash"))
+        assertTrue("что у программы: $summary", summary.contains("interpreterUrl"))
+        assertTrue("после загрузки: $summary", summary.contains("после загрузки"))
+        val err = TokenProbe.summarizeChallengeDetail("""{"error":"не ответил","stages":"запрос проверки"}""")
+        assertTrue("ошибка со этапами: $err", err.contains("не ответил") && err.contains("этапы"))
+        assertTrue("пустой вход", TokenProbe.summarizeChallengeDetail(null).contains("ответа нет"))
+    }
 }

@@ -173,7 +173,7 @@ gradle -p android :app:assembleDebug
 | Точка входа | `app.obereg.player.MainActivity` (+ `PlayerActivity`) |
 | Нативные библиотеки внутри APK | `lib/{arm64-v8a,armeabi-v7a,x86_64}/libobereg_{jni,ffi}.so` |
 | `native-code` | arm64-v8a, armeabi-v7a, x86_64 |
-| SHA-256 | `0837527D4DB992DC4C43256D940C9DCD551C482E7D7B67369D2E241F42E4E187` |
+| SHA-256 | `793B1E60AA425AE4C4272F3008034239FF2586219F53BE1F2DE2C7055DFBE7FE` |
 
 Осталось только установить APK на телефон/эмулятор и пройти сценарий с экрана
 (команды — в `android/README.md`, раздел «Приёмка на устройстве»).
@@ -1117,3 +1117,17 @@ FeedActivity, FeedCodec; и главное — символ Java_app_obereg_core
 Проверено: **57 тестов оболочки** (этапы опроса, подстановка токена в адрес и тело, срок жизни кэша),
 сборка успешна; в APK подтверждены признаки `splitPoll`, `appendPoToken`, `withPoToken`, `TokenStore`,
 `oberegStages`.
+
+### 2.51 Аттестация, шаг 3: разбор проверки и загрузка программы
+
+По кнопке «Разбор проверки (шаг 3)» движок:
+1. запрашивает проверку тем же способом, что и обычный браузер;
+2. показывает структуру: ключи и размеры блоков `challenge` и `botguardData`;
+3. загружает программу сервиса (`botguardData.program`) в свой движок и показывает, что появилось.
+
+Проверено: **58 тестов оболочки** (добавлена сводка разбора проверки), сборка успешна;
+в APK подтверждены ресурсы `id/btnChallengeDetail`, `string/profile_challenge_detail` и
+классы-признаки `challengeDetailScript`, `summarizeChallengeDetail`, `pollChallengeDetail`.
+
+Следующий шаг на устройстве: присылайте строку «разбор проверки: …» — по ней делаем P2
+(запуск программы и получение токена).

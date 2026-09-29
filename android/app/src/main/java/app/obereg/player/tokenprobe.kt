@@ -138,6 +138,129 @@ object TokenProbe {
     fun challengePollScript(): String =
         "(window.__oberegChallenge || '') + '||' + (window.__oberegStages || '')"
 
+    /**
+     * Разбор проверки (шаг 3): что именно прислал сервис и что получается после загрузки
+     * его программы в движок. Ничего не подделываем — смотрим, с чем работать.
+     *
+     * Первый запрос сохраняет ответ целиком (`window.__oberegLastChallenge`), чтобы разбор
+     * и следующая работа шли с уже полученными данными, не дёргая сервис лишний раз.
+     */
+    fun challengeDetailScript(): String = """
+        (function(){
+          var stages = [];
+          window.__oberegStages = '';
+          window.__oberegChallenge = '';
+          function mark(name) {
+            stages.push(name);
+            window.__oberegStages = stages.join(' → ');
+          }
+          function sizeOf(value) {
+            try {
+              if (typeof value === 'string') { return value.length; }
+              return JSON.stringify(value).length;
+            } catch (e) {
+              return -1;
+            }
+          }
+          try {
+            var key = (typeof ytcfg !== 'undefined' && ytcfg.get) ? ytcfg.get('INNERTUBE_API_KEY') : null;
+            var context = (typeof ytcfg !== 'undefined' && ytcfg.get) ? ytcfg.get('INNERTUBE_CONTEXT') : null;
+            if (!key || !context) {
+              window.__oberegChallenge = JSON.stringify({error: 'нет контекста или ключа'});
+              return 'started';
+            }
+            mark('запрос проверки');
+            setTimeout(function(){
+              if (window.__oberegChallenge === '') {
+                window.__oberegChallenge = JSON.stringify({
+                  error: 'сервис не ответил за 8 секунд',
+                  stages: stages.join(' → ')
+                });
+              }
+            }, 8000);
+            fetch('/youtubei/v1/att/get?key=*** + key + '&prettyPrint=false', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({context: context})
+            }).then(function(response){
+              mark('ответ: HTTP ' + response.status);
+              return response.text().then(function(text){
+                var root = {};
+                try { root = JSON.parse(text); } catch (e) { root = {}; }
+                var challenge = root.challenge || {};
+                var botguard = root.botguardData || {};
+                var detail = {
+                  status: response.status,
+                  length: text.length,
+                  rootKeys: Object.keys(root).slice(0, 12),
+                  challengeKeys: Object.keys(challenge).slice(0, 12),
+                  challengeSizes: {},
+                  botguardKeys: Object.keys(botguard).slice(0, 12),
+                  botguardSizes: {},
+                  programType: typeof botguard.program,
+                  loadedKeys: null,
+                  botguardGlobal: null
+                };
+                for (var ck in challenge) { detail.challengeSizes[ck] = sizeOf(challenge[ck]); }
+                for (var bk in botguard) { detail.botguardSizes[bk] = sizeOf(botguard[bk]); }
+                mark('структура собрана');
+                if (typeof botguard.program === 'string' && botguard.program.length > 100) {
+                  try {
+                    (0, eval)(botguard.program);
+                    mark('программа загружена');
+                    detail.loadedKeys = (typeof window.botguard !== 'undefined') ? Object.keys(window.botguard).slice(0, 12) : null;
+                  } catch (e) {
+                    detail.loadError = String(e);
+                  }
+                }
+                if (challenge.program && typeof challenge.program === 'string') {
+                  try {
+                    (0, eval)(challenge.program);
+                    mark('программа из challenge загружена');
+                    detail.botguardGlobal = (typeof window.botguard !== 'undefined') ? Object.keys(window.botguard).slice(0, 12) : null;
+                  } catch (e) {
+                    detail.challengeLoadError = String(e);
+                  }
+                }
+                window.__oberegChallenge = JSON.stringify(detail);
+              });
+            }).catch(function(e){
+              window.__oberegChallenge = JSON.stringify({error: 'сеть: ' + String(e), stages: stages.join(' → ')});
+            });
+          } catch (e) {
+            window.__oberegChallenge = JSON.stringify({error: String(e), stages: stages.join(' → ')});
+          }
+          return 'started';
+        })()
+    """.trimIndent()
+
+    /** Сводка разбора проверки: что за структура и что дала загрузка программы. */
+    fun summarizeChallengeDetail(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "разбор проверки: ответа нет"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "разбор проверки не прочитан: ${jsonText.take(140)}"
+        if (root.has("error")) {
+            val stages = root.optString("stages")
+            return "разбор проверки: ${root.optString("error").take(160)}" +
+                if (stages.isEmpty()) "" else " (этапы: ${stages.take(140)})"
+        }
+        val challengeKeys = root.optJSONArray("challengeKeys")?.let(::names).orEmpty()
+        val botguardKeys = root.optJSONArray("botguardKeys")?.let(::names).orEmpty()
+        val loaded = root.optJSONArray("loadedKeys")?.let(::names)
+        return buildString {
+            append("разбор проверки: HTTP ${root.optInt("status")}")
+            append(", в проверке: ${challengeKeys.take(5).joinToString(", ").ifEmpty { "пусто" }}")
+            append(", у программы: ${botguardKeys.take(5).joinToString(", ").ifEmpty { "пусто" }}")
+            if (loaded != null) {
+                append(", после загрузки: ${loaded.take(5).joinToString(", ").ifEmpty { "ничего" }}")
+            }
+            if (root.has("loadError")) append(", ошибка загрузки: ${root.optString("loadError").take(80)}")
+        }
+    }
+
+    private fun names(array: org.json.JSONArray): List<String> =
+        (0 until array.length()).mapNotNull { array.optString(it).takeIf { name -> name.isNotEmpty() } }
+
     /** Разделить ответ опроса на результат и этапы. */
     fun splitPoll(raw: String?): Pair<String, String> {
         val text = PlayerApi.decodeJsString(raw).orEmpty()
