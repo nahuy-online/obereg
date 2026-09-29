@@ -126,11 +126,13 @@ class ProfileActivity : AppCompatActivity() {
                 val urls = root?.optJSONArray("urls")
                 var url = ""
                 if (urls != null && urls.length() > 0) { url = urls.optString(0) }
+                url = TokenProbe.normalizeInterpreterUrl(url)
                 if (url.isEmpty()) {
                     DiagLog.add("токены: адрес интерпретатора не найден")
                     return@evaluateJavascript
                 }
                 Thread {
+                    var failure = ""
                     val text = try {
                         val client = okhttp3.OkHttpClient.Builder()
                             .connectTimeout(java.time.Duration.ofSeconds(15))
@@ -141,12 +143,13 @@ class ProfileActivity : AppCompatActivity() {
                             if (response.isSuccessful) response.body?.string() else null
                         }
                     } catch (error: Exception) {
+                        failure = error.message.orEmpty()
                         null
                     }
                     runOnUiThread {
                         if (text.isNullOrEmpty()) {
-                            DiagLog.add("токены: интерпретатор не получен (сеть)")
-                            render("интерпретатор не получен (сеть)")
+                            DiagLog.add("токены: интерпретатор не получен (сеть): ${failure.take(110)}")
+                            render("интерпретатор не получен (сеть): ${failure.take(110)}")
                             return@runOnUiThread
                         }
                         val head = text.replace("\n", " ").take(160)
@@ -241,7 +244,7 @@ class ProfileActivity : AppCompatActivity() {
             val root = runCatching {
                 org.json.JSONObject(PlayerApi.decodeJsString(raw).orEmpty())
             }.getOrNull() ?: return@evaluateJavascript
-            val url = root.optString("interpreterUrl")
+            val url = TokenProbe.normalizeInterpreterUrl(root.optString("interpreterUrl"))
             if (url.isEmpty() || url == "null") {
                 DiagLog.add("токены: адреса интерпретатора нет в проверке")
                 return@evaluateJavascript
@@ -251,6 +254,7 @@ class ProfileActivity : AppCompatActivity() {
                 return@evaluateJavascript
             }
             Thread {
+                var failure2 = ""
                 val text = try {
                     val client = okhttp3.OkHttpClient.Builder()
                         .connectTimeout(java.time.Duration.ofSeconds(15))
@@ -261,11 +265,12 @@ class ProfileActivity : AppCompatActivity() {
                         if (response.isSuccessful) response.body?.string() else null
                     }
                 } catch (error: Exception) {
+                    failure2 = error.message.orEmpty()
                     null
                 }
                 runOnUiThread {
                     if (text.isNullOrEmpty()) {
-                        DiagLog.add("токены: интерпретатор не получен")
+                        DiagLog.add("токены: интерпретатор не получен: ${failure2.take(110)}")
                         render("интерпретатор не получен (сеть)")
                         return@runOnUiThread
                     }

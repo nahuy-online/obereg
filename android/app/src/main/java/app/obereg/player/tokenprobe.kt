@@ -494,6 +494,17 @@ object TokenProbe {
         }
     }
 
+    /** Приводит адрес к полному виду: адрес без схемы (//host/…) → https. */
+    fun normalizeInterpreterUrl(raw: String): String {
+        if (raw.isEmpty() || raw == "null") return ""
+        return when {
+            raw.startsWith("//") -> "https:$raw"
+            raw.startsWith("http://") || raw.startsWith("https://") -> raw
+            raw.startsWith("/") -> "https://www.youtube.com$raw"
+            else -> raw
+        }
+    }
+
     private fun names(array: org.json.JSONArray): List<String> =
         (0 until array.length()).mapNotNull { array.optString(it).takeIf { name -> name.isNotEmpty() } }
 }

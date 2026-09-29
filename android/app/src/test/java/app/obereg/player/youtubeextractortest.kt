@@ -746,4 +746,16 @@ class YouTubeExtractorTest {
         assertTrue("пустое сравнение видно", none.contains("новых сущностей нет"))
         assertTrue("движок молчит", TokenProbe.summarizeGlobalsDiff(null).contains("не ответил"))
     }
+
+    @Test
+    fun normalizeInterpreterUrlWorks() {
+        assertEquals(
+            "https://www.google.com/js/th/x.js",
+            TokenProbe.normalizeInterpreterUrl("//www.google.com/js/th/x.js"),
+        )
+        assertEquals("https://www.youtube.com/embed/x", TokenProbe.normalizeInterpreterUrl("/embed/x"))
+        assertEquals("https://a.b/c.js", TokenProbe.normalizeInterpreterUrl("https://a.b/c.js"))
+        assertEquals("", TokenProbe.normalizeInterpreterUrl("null"))
+        assertEquals("", TokenProbe.normalizeInterpreterUrl(""))
+    }
 }
