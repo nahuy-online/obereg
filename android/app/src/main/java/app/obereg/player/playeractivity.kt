@@ -38,6 +38,7 @@ import java.net.Proxy
 class PlayerActivity : AppCompatActivity() {
 
     private var player: ExoPlayer? = null
+private var playbackSpeed = 1.0f
     private lateinit var playerView: PlayerView
     private lateinit var urlInput: EditText
     private lateinit var tunnelCheck: CheckBox
@@ -97,6 +98,14 @@ class PlayerActivity : AppCompatActivity() {
             )
         }
         findViewById<Button>(R.id.btnStopPlayback).setOnClickListener { stopPlayback() }
+        findViewById<Button>(R.id.btnSpeed).setOnClickListener {
+            playbackSpeed = PlayerApi.nextSpeed(playbackSpeed)
+            val label = PlayerApi.speedLabel(playbackSpeed)
+            player?.setPlaybackSpeed(playbackSpeed)
+            findViewById<Button>(R.id.btnSpeed).text = "Скорость: $label"
+            DiagLog.add("скорость воспроизведения: $label")
+            renderStatus("скорость: $label")
+        }
         findViewById<Button>(R.id.btnPreset1).setOnClickListener {
             urlInput.setText(presets[0])
             play(presets[0])
@@ -235,6 +244,7 @@ class PlayerActivity : AppCompatActivity() {
         val mediaSource = buildMediaSource(playUrl, proxyAddress, headers)
         exo.setMediaSource(mediaSource)
         exo.prepare()
+        exo.setPlaybackSpeed(playbackSpeed)
         exo.playWhenReady = true
 
         val route = when {
@@ -379,6 +389,7 @@ class PlayerActivity : AppCompatActivity() {
             .createMediaSource(MediaItem.fromUri(audioPlayUrl))
         exo.setMediaSource(MergingMediaSource(videoSource, audioSource))
         exo.prepare()
+        exo.setPlaybackSpeed(playbackSpeed)
         exo.playWhenReady = true
     }
 

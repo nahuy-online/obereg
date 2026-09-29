@@ -347,6 +347,19 @@ object PlayerApi {
      *
      * Сервис ждёт его отдельным параметром `pot`; если токена нет — адрес не меняется.
      */
+    /** Набор скоростей воспроизведения (цикл, до 3× как в продукте). */
+    val SPEED_STEPS = floatArrayOf(1.0f, 1.5f, 2.0f, 2.5f, 3.0f)
+
+    /** Следующая скорость в наборе (3× → снова 1×). */
+    fun nextSpeed(current: Float): Float {
+        val index = SPEED_STEPS.indexOfFirst { kotlin.math.abs(it - current) < 0.01f }
+        return if (index < 0) SPEED_STEPS[0] else SPEED_STEPS[(index + 1) % SPEED_STEPS.size]
+    }
+
+    /** Подпись скорости без лишних нулей: 1 → «1×», 1.5 → «1.5×». */
+    fun speedLabel(speed: Float): String =
+        if (speed == speed.toInt().toFloat()) "${speed.toInt()}×" else "$speed×"
+
     fun appendPoToken(url: String, token: String?): String {
         if (token.isNullOrBlank() || url.isBlank()) return url
         if (url.contains("pot=")) return url

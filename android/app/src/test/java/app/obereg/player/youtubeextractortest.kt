@@ -813,4 +813,17 @@ class YouTubeExtractorTest {
         assertTrue("просроченный последний не отдаётся", TokenStore.latest(nowMs = 10_000) == null)
         TokenStore.clear()
     }
+
+    @Test
+    fun speedCycler() {
+        assertEquals("1 -> 1.5", 1.5f, PlayerApi.nextSpeed(1.0f), 0.001f)
+        assertEquals("1.5 -> 2", 2.0f, PlayerApi.nextSpeed(1.5f), 0.001f)
+        assertEquals("2 -> 2.5", 2.5f, PlayerApi.nextSpeed(2.0f), 0.001f)
+        assertEquals("2.5 -> 3", 3.0f, PlayerApi.nextSpeed(2.5f), 0.001f)
+        assertEquals("3 -> 1", 1.0f, PlayerApi.nextSpeed(3.0f), 0.001f)
+        assertEquals("нестандарт -> 1", 1.0f, PlayerApi.nextSpeed(1.7f), 0.001f)
+        assertEquals("1x", "1×", PlayerApi.speedLabel(1.0f))
+        assertEquals("1.5x", "1.5×", PlayerApi.speedLabel(1.5f))
+        assertEquals("3x", "3×", PlayerApi.speedLabel(3.0f))
+    }
 }

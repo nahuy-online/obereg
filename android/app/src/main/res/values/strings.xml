@@ -35,6 +35,7 @@
     <string name="player_url_hint">Ссылка на видеофайл (http/https)</string>
     <string name="player_play">Играть</string>
     <string name="player_stop">Стоп</string>
+    <string name="player_speed">Скорость: 1×</string>
     <string name="player_via_tunnel">Через туннель</string>
     <string name="player_youtube_own">YouTube: свой плеер (извлечение потока)</string>
     <string name="player_check_login">Проверить вход в видеосервис</string>
