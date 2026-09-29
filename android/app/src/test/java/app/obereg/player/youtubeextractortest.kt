@@ -614,4 +614,16 @@ class YouTubeExtractorTest {
         assertTrue("движок молчит", TokenProbe.summarize(null).contains("не ответил"))
         assertTrue("ошибка движка видна", TokenProbe.summarize("\"{\\\"error\\\":\\\"ReferenceError\\\"}\"").contains("ReferenceError"))
     }
+
+    @Test
+    fun challengeSummaryReportsFacts() {
+        val ok = """{"status":200,"length":4096,"keys":["challenge","bgConfig"],"head":"start"}"""
+        val summary = TokenProbe.summarizeChallenge("\"" + ok.replace("\"", "\\\"") + "\"")
+        assertTrue("код и размер: $summary", summary.contains("HTTP 200") && summary.contains("4096"))
+        assertTrue("поля названы", summary.contains("challenge"))
+        val denied = TokenProbe.summarizeChallenge("\"{\\\"status\\\":403,\\\"length\\\":40,\\\"keys\\\":[],\\\"head\\\":\\\"no access\\\"}\"")
+        assertTrue("отказ виден: $denied", denied.contains("HTTP 403") && denied.contains("no access"))
+        assertTrue("движок молчит", TokenProbe.summarizeChallenge(null).contains("не ответил"))
+        assertTrue("ошибка видна", TokenProbe.summarizeChallenge("\"{\\\"error\\\":\\\"нет ключа\\\"}\"").contains("нет ключа"))
+    }
 }

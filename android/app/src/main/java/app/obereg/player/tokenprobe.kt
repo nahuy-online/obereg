@@ -71,4 +71,68 @@ object TokenProbe {
         )
         return parts.joinToString(", ")
     }
+
+    /**
+     * Запрос проверки (шаг P2) — делается **изнутри движка**: страница сама обращается
+     * к сервису со своим контекстом и ключом, а мы только читаем, что вернулось.
+     *
+     * Ничего не подделываем: это тот же запрос, который делает страница.
+     */
+    fun challengeScript(): String = """
+        (async function(){
+          try {
+            if (typeof ytcfg === 'undefined' || !ytcfg.get) {
+              return JSON.stringify({error: 'нет конфигурации страницы'});
+            }
+            var context = ytcfg.get('INNERTUBE_CONTEXT');
+            var key = ytcfg.get('INNERTUBE_API_KEY');
+            if (!context || !key) {
+              return JSON.stringify({error: 'нет контекста или ключа'});
+            }
+            var response = await fetch('/youtubei/v1/att/get?key=' + key + '&prettyPrint=false', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({context: context})
+            });
+            var text = await response.text();
+            var keys = [];
+            try { keys = Object.keys(JSON.parse(text)).slice(0, 20); } catch (e) { keys = ['не JSON']; }
+            return JSON.stringify({
+              status: response.status,
+              length: text.length,
+              keys: keys,
+              head: text.slice(0, 160)
+            });
+          } catch (e) {
+            return JSON.stringify({error: String(e)});
+          }
+        })()
+    """.trimIndent()
+
+    /** Сводка ответа на запрос проверки. */
+    fun summarizeChallenge(raw: String?): String {
+        val text = PlayerApi.decodeJsString(raw)
+        if (text.isNullOrEmpty()) return "движок не ответил на запрос проверки"
+        val root = runCatching { JSONObject(text) }.getOrNull()
+            ?: return "ответ на проверку не разобран: ${text.take(120)}"
+        if (root.has("error")) return "ошибка запроса проверки: ${root.optString("error").take(140)}"
+
+        val status = root.optInt("status")
+        val length = root.optInt("length")
+        val keys = root.optJSONArray("keys")?.let { array ->
+            (0 until array.length()).mapNotNull { array.optString(it).takeIf { key -> key.isNotEmpty() } }
+        }.orEmpty()
+        val head = root.optString("head")
+        return buildString {
+            append("проверка: HTTP $status, ответ $length символов")
+            if (keys.isNotEmpty()) {
+                append(", поля: ")
+                append(keys.take(6).joinToString(", "))
+            }
+            if (status != 200 && head.isNotEmpty()) {
+                append(", начало: ")
+                append(head.take(120))
+            }
+        }
+    }
 }

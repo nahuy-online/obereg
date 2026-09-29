@@ -1,5 +1,7 @@
 package app.obereg.player
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -86,6 +88,17 @@ class ProfileActivity : AppCompatActivity() {
             DiagLog.add("токены: запуск разведки")
             tokenWebView.loadUrl(TokenProbe.PROBE_URL)
         }
+        findViewById<Button>(R.id.btnChallengeProbe).setOnClickListener {
+            // Шаг 2: страница сама обращается к сервису за проверкой, мы читаем ответ.
+            render("запрос проверки: обращаюсь из движка…")
+            DiagLog.add("токены: запрос проверки")
+            tokenWebView.evaluateJavascript(TokenProbe.challengeScript()) { raw ->
+                val summary = TokenProbe.summarizeChallenge(raw)
+                DiagLog.add("токены: $summary")
+                render("запрос проверки: $summary")
+            }
+        }
+        findViewById<Button>(R.id.btnProfileReport).setOnClickListener { copyReport() }
         findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
         findViewById<Button>(R.id.btnProfileBack).setOnClickListener { finish() }
 
@@ -109,6 +122,30 @@ class ProfileActivity : AppCompatActivity() {
                 "наша рекомендация: $id на позицию $position"
             },
         )
+    }
+
+    /** Копия отчёта с профиля: тот же общий журнал, что на других экранах. */
+    private fun copyReport() {
+        val core = runCatching { CoreHolder.status() }.getOrNull()
+        val header = buildString {
+            appendLine("Obereg · отчёт диагностики (профиль)")
+            appendLine(
+                "время: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+                    .format(java.util.Date()),
+            )
+            appendLine("туннель: ${if (tunnelCheck.isChecked) "включён" else "выключен"}")
+            if (core != null) {
+                appendLine("ядро: ${core.state} / ${core.mode} / прокси ${core.listenAddr ?: "нет"}")
+            }
+            appendLine("--- журнал ---")
+        }
+        val report = header + DiagLog.dump()
+        runCatching {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText("Obereg отчёт", report))
+        }
+        DiagLog.add("отчёт скопирован (${report.length} символов)")
+        render("отчёт скопирован (${report.length} символов) — вставьте его в чат")
     }
 
     /**
