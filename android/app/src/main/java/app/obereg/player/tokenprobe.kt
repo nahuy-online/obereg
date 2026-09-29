@@ -738,6 +738,130 @@ object TokenProbe {
         }
     }
 
+    /** Публичный ключ WAA-обмена (как в эталонном клиенте). */
+    const val WAA_API_KEY = "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw"
+
+    /** Пробное видео для цепочки проверки. */
+    const val PROBE_VIDEO_ID = "dQw4w9WgXcQ"
+
+    /** Разобранный ответ обмена на токен целостности. */
+    data class IntegrityTokenInfo(
+        val token: String,
+        val ttlSecs: Int,
+        val refreshSecs: Int,
+        val fallback: String,
+    )
+
+    /** Разбор ответа обмена: [токен, срок, порог обновления, запасной токен]. */
+    fun parseIntegrityResponse(jsonText: String?): IntegrityTokenInfo? {
+        if (jsonText.isNullOrEmpty() || !jsonText.trimStart().startsWith("[")) return null
+        val arr = runCatching { org.json.JSONArray(jsonText) }.getOrNull() ?: return null
+        val token = arr.optString(0)
+        if (token.length < 20) return null
+        return IntegrityTokenInfo(token, arr.optInt(1, 0), arr.optInt(2, 0), arr.optString(3))
+    }
+
+    /**
+     * Шаг 8: минт PO-токена в странице.
+     *
+     * Ждёт от машины проверки функцию-минтер, отдаёт ей токен целостности
+     * и получает готовый PO-токен для выбранного видео.
+     */
+    fun mintScript(): String = """
+        (function(){
+          function put(obj) { try { window.__oberegPoToken = JSON.stringify(obj); } catch (e) { } }
+          put({ stage: 'старт' });
+          try {
+            var token = window.__oberegIntegrityToken;
+            if (typeof token !== 'string' || token.length < 10) { put({ stage: 'без-токена' }); return 'started'; }
+            function b64ToU8(base64) {
+              if (base64.indexOf('-') >= 0 || base64.indexOf('_') >= 0 || base64.indexOf('.') >= 0) {
+                base64 = base64.split('-').join('+').split('_').join('/').split('.').join('=');
+              }
+              var raw = atob(base64);
+              var out = new Uint8Array(raw.length);
+              for (var i = 0; i < raw.length; i++) { out[i] = raw.charCodeAt(i); }
+              return out;
+            }
+            function u8ToB64Url(u8) {
+              var s = '';
+              for (var i = 0; i < u8.length; i++) { s += String.fromCharCode(u8[i]); }
+              return btoa(s).split('+').join('-').split('/').join('_');
+            }
+            var videoId = window.__oberegPoVideo || 'dQw4w9WgXcQ';
+            var attempts = 0;
+            var waitMinter = function() {
+              attempts++;
+              var out = window.__oberegSignalOut || [];
+              var getMinter = out[0];
+              if (typeof getMinter !== 'function') {
+                if (attempts > 20) { put({ stage: 'нет-минтера', signals: out.length }); return; }
+                setTimeout(waitMinter, 300);
+                return;
+              }
+              put({ stage: 'минтер-есть' });
+              var p = null;
+              try { p = getMinter(b64ToU8(token)); } catch (e1) { put({ stage: 'сбой-минтера', error: String(e1).slice(0, 140) }); return; }
+              Promise.resolve(p).then(function(mintCallback) {
+                if (typeof mintCallback !== 'function') { put({ stage: 'минтер-молчит' }); return; }
+                var r = null;
+                try { r = mintCallback(new TextEncoder().encode(videoId)); } catch (e2) { put({ stage: 'сбой-минта', error: String(e2).slice(0, 140) }); return; }
+                Promise.resolve(r).then(function(bytes) {
+                  if (!bytes || !bytes.length) { put({ stage: 'пустой-токен' }); return; }
+                  var poToken = u8ToB64Url(bytes);
+                  window.__oberegPoTokenValue = poToken;
+                  put({ stage: 'по-токен', video: videoId, len: poToken.length, token: poToken, head: poToken.slice(0, 60) });
+                }, function(e3) { put({ stage: 'сбой-минта', error: String(e3).slice(0, 140) }); });
+              }, function(e4) { put({ stage: 'сбой-минтера', error: String(e4).slice(0, 140) }); });
+            };
+            waitMinter();
+            return 'started';
+          } catch (e) {
+            put({ stage: 'сбой', error: String(e).slice(0, 140) });
+            return 'started';
+          }
+        })()
+    """.trimIndent()
+
+    /** Опрос состояния минта. */
+    fun mintPollScript(): String =
+        "(window.__oberegPoToken || '') + '||' + (window.__oberegStages || '')"
+
+    /** Этап минта. */
+    fun mintStage(jsonText: String?): String =
+        runCatching { JSONObject(jsonText.orEmpty()).optString("stage") }.getOrDefault("")
+
+    /** Финальные этапы минта. */
+    fun mintFinal(stage: String): Boolean = stage in setOf(
+        "по-токен", "сбой", "сбой-минтера", "сбой-минта", "нет-минтера", "минтер-молчит",
+        "пустой-токен", "без-токена",
+    )
+
+    /** Значение PO-токена из ответа страницы. */
+    fun mintValue(jsonText: String?): String? {
+        val root = runCatching { JSONObject(jsonText.orEmpty()) }.getOrNull() ?: return null
+        return if (root.optString("stage") == "по-токен") {
+            root.optString("token").takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+    }
+
+    /** Сводка минта. */
+    fun summarizeMint(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "минт: движок не ответил"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "минт не прочитан: ${jsonText.take(120)}"
+        return when (val stage = root.optString("stage")) {
+            "по-токен" -> "PO-токен получен (${root.optInt("len")} символов) для ${root.optString("video")}; начало: ${root.optString("head").take(50)}"
+            "минтер-есть" -> "машина проверки отдала минтер"
+            "нет-минтера" -> "минтер не появился (сигналов: ${root.optInt("signals")})"
+            "без-токена" -> "токена целостности нет — сначала шаг 8"
+            "сбой", "сбой-минтера", "сбой-минта" -> "сбой минта: ${root.optString("error").take(140)}"
+            else -> "минт: этап \"$stage\""
+        }
+    }
+
     /** Приводит адрес к полному виду: адрес без схемы (//host/…) → https. */
     fun normalizeInterpreterUrl(raw: String): String {
         if (raw.isEmpty() || raw == "null") return ""

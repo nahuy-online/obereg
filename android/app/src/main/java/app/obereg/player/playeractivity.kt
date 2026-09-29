@@ -56,6 +56,7 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Последняя отданная плееру ссылка и её заголовки — нужны для пробы при отказе. */
     private var currentStreamUrl: String? = null
+    private var currentVideoId: String? = null
     private var currentStreamHeaders: Map<String, String> = emptyMap()
 
     private val presets = listOf(
@@ -226,10 +227,11 @@ class PlayerActivity : AppCompatActivity() {
         exo.stop()
         exo.clearMediaItems()
         onPlaybackFailure = onFailure
-        currentStreamUrl = if (local) null else url
+        val playUrl = appendStoredPot(url, local)
+        currentStreamUrl = if (local) null else playUrl
         currentStreamHeaders = headers
 
-        val mediaSource = buildMediaSource(url, proxyAddress, headers)
+        val mediaSource = buildMediaSource(playUrl, proxyAddress, headers)
         exo.setMediaSource(mediaSource)
         exo.prepare()
         exo.playWhenReady = true
@@ -265,6 +267,7 @@ class PlayerActivity : AppCompatActivity() {
                 YouTubeExtractor(
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
+                    poTokenProvider = { TokenStore.get(videoId)?.value },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->
                 runOnUiThread {
@@ -302,6 +305,7 @@ class PlayerActivity : AppCompatActivity() {
                     return@runOnUiThread
                 }
                 currentTitle = "YouTube $videoId"
+                currentVideoId = videoId
                 variants.clear()
                 variants.addAll(outcome.usable.drop(1))
                 onVariant(first)
@@ -362,17 +366,27 @@ class PlayerActivity : AppCompatActivity() {
         exo.stop()
         exo.clearMediaItems()
         onPlaybackFailure = onFailure
-        currentStreamUrl = videoUrl
+        val videoPlayUrl = appendStoredPot(videoUrl, false)
+        val audioPlayUrl = appendStoredPot(audioUrl, false)
+        currentStreamUrl = videoPlayUrl
         currentStreamHeaders = headers
 
         val factory = DefaultDataSource.Factory(this, httpDataSource(proxyAddress, headers))
         val videoSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(videoUrl))
+            .createMediaSource(MediaItem.fromUri(videoPlayUrl))
         val audioSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(audioUrl))
+            .createMediaSource(MediaItem.fromUri(audioPlayUrl))
         exo.setMediaSource(MergingMediaSource(videoSource, audioSource))
         exo.prepare()
         exo.playWhenReady = true
+    }
+
+    /** Добавляет сохранённый токен проверки к адресу потока, если он есть. */
+    private fun appendStoredPot(url: String, local: Boolean): String {
+        if (local) return url
+        val videoId = currentVideoId ?: return url
+        val pot = TokenStore.get(videoId)?.value ?: return url
+        return PlayerApi.appendPoToken(url, pot)
     }
 
     private fun stopPlayback() {

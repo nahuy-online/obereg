@@ -775,4 +775,20 @@ class YouTubeExtractorTest {
         assertTrue("ошибки видны", TokenProbe.summarizeErrors("""{"errs":["SyntaxError x"]}""").contains("ошибки страницы"))
         assertTrue("без ошибок пусто", TokenProbe.summarizeErrors("""{"errs":[]}""").isEmpty())
     }
+
+    @Test
+    fun integrityExchangeHelpers() {
+        val info = TokenProbe.parseIntegrityResponse("""["ТОКЕН-ДОСТАТОЧНО-ДЛИННЫЙ-ВОТ-ТАК",7200,600,"запас"]""")
+        assertTrue("токен прочитан", info != null && info.token.startsWith("ТОКЕН"))
+        assertTrue("срок прочитан", info?.ttlSecs == 7200)
+        assertTrue("битый ответ не ломает", TokenProbe.parseIntegrityResponse("не json") == null)
+        assertTrue("короткий отсеян", TokenProbe.parseIntegrityResponse("""["к",1,1,"x"]""") == null)
+        val ok = """{"stage":"по-токен","video":"dQw4w9WgXcQ","len":180,"head":"abc"}"""
+        assertTrue(TokenProbe.summarizeMint(ok).contains("180"))
+        assertTrue(TokenProbe.summarizeMint("""{"stage":"нет-минтера","signals":0}""").contains("минтер"))
+        assertTrue("финал виден", TokenProbe.mintFinal("по-токен"))
+        assertTrue("старт не финал", !TokenProbe.mintFinal("старт"))
+        val v = """{"stage":"по-токен","token":"zxc","len":3,"video":"v"}"""
+        assertTrue("значение читается", TokenProbe.mintValue(v) == "zxc")
+    }
 }

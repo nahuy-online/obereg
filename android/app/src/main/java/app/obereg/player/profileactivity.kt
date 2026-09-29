@@ -11,6 +11,8 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -118,6 +120,9 @@ class ProfileActivity : AppCompatActivity() {
             DiagLog.add("токены: прогон проверки")
             tokenWebView.evaluateJavascript(TokenProbe.step7Script()) { _ -> }
             pollStep7(1)
+        }
+        findViewById<Button>(R.id.btnTokenExchange).setOnClickListener {
+            runTokenExchange()
         }
         findViewById<Button>(R.id.btnInterpreterLoad).setOnClickListener {
             render("ищу адрес интерпретатора…")
@@ -308,6 +313,109 @@ class ProfileActivity : AppCompatActivity() {
             }.start()
         }
     }
+    /** Обмен снимка на токен целостности (шаг 8) и запуск минта PO-токена. */
+    private fun runTokenExchange() {
+        render("обмен на токен целостности:")
+        DiagLog.add("токены: обмен на токен целостности")
+        tokenWebView.evaluateJavascript("(window.__oberegSnapshot || ')") { raw ->
+            val snapshot = PlayerApi.decodeJsString(raw)
+            if (snapshot.isNullOrEmpty() || snapshot.length < 50) {
+                DiagLog.add("токены: снимка нет - сначала шаг 7")
+                render("снимка нет — сначала шаг 7")
+                return@evaluateJavascript
+            }
+            Thread {
+                var failure = ""
+                var resultText = ""
+                var httpCode = 0
+                try {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(java.time.Duration.ofSeconds(15))
+                        .readTimeout(java.time.Duration.ofSeconds(25))
+                        .build()
+                    val bodyJson = org.json.JSONArray()
+                        .put("O43z0dpjhgX20SCx4KAo")
+                        .put(snapshot)
+                        .toString()
+                    val body = bodyJson.toRequestBody("application/json+protobuf".toMediaType())
+                    val request = okhttp3.Request.Builder()
+                        .url("https://www.youtube.com/api/jnn/v1/GenerateIT")
+                        .post(body)
+                        .header("content-type", "application/json+protobuf")
+                        .header("x-goog-api-key", TokenProbe.WAA_API_KEY)
+                        .header("x-user-agent", "grpc-web-javascript/0.1")
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        httpCode = response.code
+                        resultText = response.body?.string().orEmpty()
+                    }
+                } catch (error: Exception) {
+                    failure = error.message.orEmpty()
+                }
+                runOnUiThread {
+                    if (failure.isNotEmpty()) {
+                        DiagLog.add("токены: обмен не прошёл: ${failure.take(110)}")
+                        render("обмен не прошёл: ${failure.take(110)}")
+                        return@runOnUiThread
+                    }
+                    val info = TokenProbe.parseIntegrityResponse(resultText)
+                    if (info == null) {
+                        DiagLog.add("токены: обмен: HTTP $httpCode, ответ: ${resultText.take(140)}")
+                        render("обмен: HTTP $httpCode, ответ: ${resultText.take(140)}")
+                        return@runOnUiThread
+                    }
+                    DiagLog.add(
+                        "токены: токен целостности получен (${info.token.length} символов), срок ${info.ttlSecs} сек, порог ${info.refreshSecs} сек",
+                    )
+                    val escaped = org.json.JSONObject.quote(info.token)
+                    tokenWebView.evaluateJavascript("window.__oberegIntegrityToken = $escaped; 'ok'") { _ ->
+                        tokenWebView.evaluateJavascript(TokenProbe.mintScript()) { _ -> }
+                    }
+                    pollMint(1)
+                }
+            }.start()
+        }
+    }
+
+    /** Минт PO-токена: ждём результат из страницы и сохраняем токен для видео. */
+    private fun pollMint(attempt: Int) {
+        tokenWebView.postDelayed({
+            tokenWebView.evaluateJavascript(TokenProbe.mintPollScript()) { raw ->
+                val (result, stages) = TokenProbe.splitPoll(raw)
+                if (result.isEmpty()) {
+                    if (attempt < 15) {
+                        pollMint(attempt + 1)
+                    } else {
+                        DiagLog.add("токены: минт - ответа нет (этапы: $stages)")
+                        render("минт: ответа нет")
+                    }
+                    return@evaluateJavascript
+                }
+                val stage = TokenProbe.mintStage(result)
+                val summary = TokenProbe.summarizeMint(result)
+                if (TokenProbe.mintFinal(stage)) {
+                    DiagLog.add("токены: $summary")
+                    render(summary)
+                    val token = TokenProbe.mintValue(result)
+                    if (token != null) {
+                        TokenStore.put(
+                            TokenProbe.PROBE_VIDEO_ID,
+                            PoToken(token, System.currentTimeMillis() + 6 * 60 * 60 * 1000L),
+                        )
+                        DiagLog.add("токены: PO-токен сохранён для ${TokenProbe.PROBE_VIDEO_ID}")
+                    }
+                } else {
+                    render("минт: $summary")
+                    if (attempt < 15) {
+                        pollMint(attempt + 1)
+                    } else {
+                        DiagLog.add("токены: минт затянулся: $summary")
+                    }
+                }
+            }
+        }, 1_000)
+    }
+
     /** Прогон машины проверки (шаг 7): ждём снимок из страницы. */
     private fun pollStep7(attempt: Int) {
         tokenWebView.postDelayed({

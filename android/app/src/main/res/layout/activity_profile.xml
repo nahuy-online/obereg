@@ -139,6 +139,13 @@
         android:textSize="12sp"
         android:text="@string/profile_vm_run" />
 
+
+    <Button
+        android:id="@+id/btnTokenExchange"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/profile_token_exchange" />
     <Button
         android:id="@+id/btnProfileReport"
         android:layout_width="match_parent"
