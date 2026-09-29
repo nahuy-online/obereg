@@ -1,6 +1,10 @@
 package app.obereg.player
 
 import android.os.Bundle
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -22,6 +26,7 @@ class ProfileActivity : AppCompatActivity() {
     private lateinit var promoTitle: EditText
     private lateinit var promoPosition: EditText
     private lateinit var statusView: TextView
+    private lateinit var tokenWebView: WebView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,6 +38,20 @@ class ProfileActivity : AppCompatActivity() {
         promoTitle = findViewById(R.id.promoTitleInput)
         promoPosition = findViewById(R.id.promoPositionInput)
         statusView = findViewById(R.id.profileStatus)
+        tokenWebView = findViewById(R.id.tokenWebView)
+        tokenWebView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            userAgentString =
+                "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
+        tokenWebView.webChromeClient = WebChromeClient()
+        tokenWebView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                runTokenProbe()
+            }
+        }
 
         tunnelCheck.isChecked = AppSettings.tunnelDesired(this)
         screenCheck.isChecked = AppSettings.screenViaTunnel(this)
@@ -62,6 +81,11 @@ class ProfileActivity : AppCompatActivity() {
             )
         }
 
+        findViewById<Button>(R.id.btnTokenProbe).setOnClickListener {
+            render("разведка движка токенов: открываю страницу сервиса…")
+            DiagLog.add("токены: запуск разведки")
+            tokenWebView.loadUrl(TokenProbe.PROBE_URL)
+        }
         findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
         findViewById<Button>(R.id.btnProfileBack).setOnClickListener { finish() }
 
@@ -85,6 +109,19 @@ class ProfileActivity : AppCompatActivity() {
                 "наша рекомендация: $id на позицию $position"
             },
         )
+    }
+
+    /**
+     * Разведка движка: что страница сервиса отдаёт нашей WebView.
+     *
+     * Результат попадает и на экран, и в журнал — по нему решается следующий шаг этапа.
+     */
+    private fun runTokenProbe() {
+        tokenWebView.evaluateJavascript(TokenProbe.reportScript()) { raw ->
+            val summary = TokenProbe.summarize(raw)
+            DiagLog.add("токены: $summary")
+            render("движок токенов: $summary")
+        }
     }
 
     private fun render(message: String) {

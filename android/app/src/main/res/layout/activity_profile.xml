@@ -84,6 +84,19 @@
             android:text="@string/library_back" />
     </LinearLayout>
 
+    <WebView
+        android:id="@+id/tokenWebView"
+        android:layout_width="match_parent"
+        android:layout_height="1dp" />
+
+    <Button
+        android:id="@+id/btnTokenProbe"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="12sp"
+        android:text="@string/profile_token_probe" />
+
     <TextView
         android:id="@+id/profileStatus"
         android:layout_width="match_parent"

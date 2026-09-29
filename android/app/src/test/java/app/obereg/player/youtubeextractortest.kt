@@ -599,4 +599,19 @@ class YouTubeExtractorTest {
         val legacy = FeedCodec.mapItems("""[{"video_id":"aaaaaaaaaaa","title":"Без картинки"}]""")
         assertNull(legacy[0].thumbnailUrl)
     }
+
+    @Test
+    fun tokenProbeSummaryReportsFacts() {
+        val full = """{"hasYtcfg":true,"visitorData":"CgtYWVpBQkM","hasPlayer":false,"hasVideo":true,"botguardKeys":["a"],"jslKeys":null,"scriptCount":12}"""
+        val summary = TokenProbe.summarize("\"" + full.replace("\"", "\\\"") + "\"")
+        assertTrue("конфигурация: $summary", summary.contains("конфигурация: есть"))
+        assertTrue("гостевые данные сокращены", summary.contains("есть (CgtYXY".take(10)) || summary.contains("есть ("))
+        assertTrue("объект проверки найден", summary.contains("объект проверки: найден"))
+        assertTrue("число скриптов", summary.contains("скриптов на странице: 12"))
+        val empty = TokenProbe.summarize("\"{\\\"hasYtcfg\\\":false,\\\"scriptCount\\\":3}\"")
+        assertTrue("без конфигурации: $empty", empty.contains("конфигурация: нет"))
+        assertTrue("без гостевых данных", empty.contains("гостевые данные: нет"))
+        assertTrue("движок молчит", TokenProbe.summarize(null).contains("не ответил"))
+        assertTrue("ошибка движка видна", TokenProbe.summarize("\"{\\\"error\\\":\\\"ReferenceError\\\"}\"").contains("ReferenceError"))
+    }
 }

@@ -65,6 +65,7 @@
     <string name="profile_promo_name_hint">название для показа (необязательно)</string>
     <string name="profile_promo_position_hint">позиция в ленте (по умолчанию 3)</string>
     <string name="profile_save">Сохранить</string>
+    <string name="profile_token_probe">Разведка движка токенов (этап аттестации, шаг 1)</string>
     <string name="profile_status_idle">настройки: изменения сохраняются сразу</string>
     <string name="youtube_via_our_tunnel">Через наш туннель (для этого экрана)</string>
     <string name="player_preset_1">Локальное видео</string>
