@@ -38,6 +38,9 @@ class FeedActivity : AppCompatActivity() {
     private var mode: String = MODE_RECOMMENDED
     private var pageHandled = false
 
+    /** Одна повторная попытка спросить данные у движка: страница иногда достраивается позже. */
+    private var engineRetried = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_feed)
@@ -80,6 +83,7 @@ class FeedActivity : AppCompatActivity() {
         mode = newMode
         val url = feedUrl(mode, mobile = true)
         pageHandled = false
+        engineRetried = false
         statusView.text = "загружаю в браузерном движке: $url"
         applyRoute()
         webView.stopLoading()
@@ -109,6 +113,10 @@ class FeedActivity : AppCompatActivity() {
             val json = PlayerApi.decodeJsString(raw)
             if (json == null || json == "null" || json.length < 1000) {
                 DiagLog.add("лента: движок не отдал данные (${json?.length ?: 0} символов)")
+                if (!engineRetried) {
+                    engineRetried = true
+                    webView.postDelayed({ tryEngineData() }, 2_500)
+                }
                 return@evaluateJavascript
             }
             pageHandled = true
@@ -159,7 +167,7 @@ class FeedActivity : AppCompatActivity() {
         )
         DiagLog.add("лента ($mode): роликов ${items.size}")
         statusView.text = if (items.isEmpty()) {
-            "лента пуста — вероятно, нужен вход: откройте экран сервиса и войдите"
+            FeedCodec.emptyMessage(mode)
         } else {
             "роликов: ${items.size}" +
                 if (items.any { it.injected }) ", наша рекомендация на месте" else ""

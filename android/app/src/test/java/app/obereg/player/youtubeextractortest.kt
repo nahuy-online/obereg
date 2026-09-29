@@ -556,4 +556,15 @@ class YouTubeExtractorTest {
         assertNull(PlayerApi.decodeJsString(null))
         assertNull("мусор не должен ломать", PlayerApi.decodeJsString("{не json}"))
     }
+
+    @Test
+    fun emptyFeedExplainsWhy() {
+        // Проверено на устройстве: пустые рекомендации — обычно из-за выключенной истории,
+        // поэтому сообщение должно объяснять, а не просто говорить «пусто».
+        val recommended = FeedCodec.emptyMessage("recommended")
+        assertTrue("причина названа: $recommended", recommended.contains("история просмотров"))
+        assertTrue("ведёт в подписки", recommended.contains("Подписки"))
+        val subscriptions = FeedCodec.emptyMessage("subscriptions")
+        assertTrue("для подписок своё объяснение", subscriptions.contains("подпишитесь"))
+    }
 }
