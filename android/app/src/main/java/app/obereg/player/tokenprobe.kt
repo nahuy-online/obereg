@@ -79,39 +79,49 @@ object TokenProbe {
      * Ничего не подделываем: это тот же запрос, который делает страница.
      */
     fun challengeScript(): String = """
-        (async function(){
+        (function(){
+          window.__oberegChallenge = '';
           try {
             if (typeof ytcfg === 'undefined' || !ytcfg.get) {
-              return JSON.stringify({error: 'нет конфигурации страницы'});
+              window.__oberegChallenge = JSON.stringify({error: 'нет конфигурации страницы'});
+              return 'started';
             }
             var context = ytcfg.get('INNERTUBE_CONTEXT');
             var key = ytcfg.get('INNERTUBE_API_KEY');
             if (!context || !key) {
-              return JSON.stringify({error: 'нет контекста или ключа'});
+              window.__oberegChallenge = JSON.stringify({error: 'нет контекста или ключа'});
+              return 'started';
             }
-            var response = await fetch('/youtubei/v1/att/get?key=' + key + '&prettyPrint=false', {
+            fetch('/youtubei/v1/att/get?key=*** + key + '&prettyPrint=false', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({context: context})
-            });
-            var text = await response.text();
-            var keys = [];
-            try { keys = Object.keys(JSON.parse(text)).slice(0, 20); } catch (e) { keys = ['не JSON']; }
-            return JSON.stringify({
-              status: response.status,
-              length: text.length,
-              keys: keys,
-              head: text.slice(0, 160)
+            }).then(function(response){
+              return response.text().then(function(text){
+                var keys = [];
+                try { keys = Object.keys(JSON.parse(text)).slice(0, 20); } catch (e) { keys = ['не JSON']; }
+                window.__oberegChallenge = JSON.stringify({
+                  status: response.status,
+                  length: text.length,
+                  keys: keys,
+                  head: text.slice(0, 240)
+                });
+              });
+            }).catch(function(e){
+              window.__oberegChallenge = JSON.stringify({error: 'сеть: ' + String(e)});
             });
           } catch (e) {
-            return JSON.stringify({error: String(e)});
+            window.__oberegChallenge = JSON.stringify({error: String(e)});
           }
+          return 'started';
         })()
     """.trimIndent()
 
-    /** Сводка ответа на запрос проверки. */
-    fun summarizeChallenge(raw: String?): String {
-        val text = PlayerApi.decodeJsString(raw)
+    /** Забрать готовый ответ проверки из страницы (ответ асинхронный — его опрашивают). */
+    fun challengePollScript(): String = "window.__oberegChallenge || ''"
+
+    fun summarizeChallenge(jsonText: String?): String {
+        val text = jsonText
         if (text.isNullOrEmpty()) return "движок не ответил на запрос проверки"
         val root = runCatching { JSONObject(text) }.getOrNull()
             ?: return "ответ на проверку не разобран: ${text.take(120)}"

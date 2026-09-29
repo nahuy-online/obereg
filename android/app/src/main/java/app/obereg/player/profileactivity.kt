@@ -92,11 +92,8 @@ class ProfileActivity : AppCompatActivity() {
             // Шаг 2: страница сама обращается к сервису за проверкой, мы читаем ответ.
             render("запрос проверки: обращаюсь из движка…")
             DiagLog.add("токены: запрос проверки")
-            tokenWebView.evaluateJavascript(TokenProbe.challengeScript()) { raw ->
-                val summary = TokenProbe.summarizeChallenge(raw)
-                DiagLog.add("токены: $summary")
-                render("запрос проверки: $summary")
-            }
+            tokenWebView.evaluateJavascript(TokenProbe.challengeScript()) { _ -> }
+            pollChallenge(1)
         }
         findViewById<Button>(R.id.btnProfileReport).setOnClickListener { copyReport() }
         findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
@@ -124,6 +121,26 @@ class ProfileActivity : AppCompatActivity() {
         )
     }
 
+    /** Опрос результата проверки: движок не ждёт сетевых вызовов, поэтому спрашиваем повторно. */
+    private fun pollChallenge(attempt: Int) {
+        tokenWebView.postDelayed({
+            tokenWebView.evaluateJavascript(TokenProbe.challengePollScript()) { raw ->
+                val text = PlayerApi.decodeJsString(raw)
+                if (text.isNullOrEmpty()) {
+                    if (attempt < 10) {
+                        pollChallenge(attempt + 1)
+                    } else {
+                        DiagLog.add("токены: запрос проверки — ответа нет за 10 секунд")
+                        render("запрос проверки: ответа нет за 10 секунд")
+                    }
+                    return@evaluateJavascript
+                }
+                val summary = TokenProbe.summarizeChallenge(text)
+                DiagLog.add("токены: $summary")
+                render("запрос проверки: $summary")
+            }
+        }, 1_000)
+    }
     /** Копия отчёта с профиля: тот же общий журнал, что на других экранах. */
     private fun copyReport() {
         val core = runCatching { CoreHolder.status() }.getOrNull()
