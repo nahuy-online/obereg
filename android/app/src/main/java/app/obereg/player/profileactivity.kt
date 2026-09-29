@@ -113,6 +113,12 @@ class ProfileActivity : AppCompatActivity() {
             tokenWebView.evaluateJavascript(TokenProbe.challengeDetailScript()) { _ -> }
             pollChallengeDetail(1)
         }
+        findViewById<Button>(R.id.btnVmRun).setOnClickListener {
+            render("прогон проверки: запускаю машину:")
+            DiagLog.add("токены: прогон проверки")
+            tokenWebView.evaluateJavascript(TokenProbe.step7Script()) { _ -> }
+            pollStep7(1)
+        }
         findViewById<Button>(R.id.btnInterpreterLoad).setOnClickListener {
             render("ищу адрес интерпретатора…")
             DiagLog.add("токены: поиск интерпретатора")
@@ -155,6 +161,7 @@ class ProfileActivity : AppCompatActivity() {
                         val head = text.replace("\n", " ").take(160)
                         DiagLog.add("токены: интерпретатор получен (${text.length} символов): $head")
                         // Снимок имён до вложения — потом сравним, что принесла машина проверки.
+                        tokenWebView.evaluateJavascript(TokenProbe.armErrorsScript()) { _ -> }
                         tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { _ -> }
                         val escaped = org.json.JSONObject.quote(text)
                         tokenWebView.evaluateJavascript(
@@ -166,11 +173,20 @@ class ProfileActivity : AppCompatActivity() {
                                         PlayerApi.decodeJsString(checkRaw),
                                     )
                                     DiagLog.add("токены: интерпретатор вложен, $check")
+                                    tokenWebView.evaluateJavascript(TokenProbe.vmFindScript()) { vmRaw ->
+                                        val vmSummary = TokenProbe.summarizeVmFind(PlayerApi.decodeJsString(vmRaw))
+                                        DiagLog.add("токены: $vmSummary")
                                         tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { diffRaw ->
                                             val diff = TokenProbe.summarizeGlobalsDiff(PlayerApi.decodeJsString(diffRaw))
                                             DiagLog.add("токены: $diff")
-                                            render("интерпретатор: ${text.length} символов; $check; $diff")
+                                            tokenWebView.evaluateJavascript(TokenProbe.errorsReportScript()) { errRaw ->
+                                                val errs = TokenProbe.summarizeErrors(PlayerApi.decodeJsString(errRaw))
+                                                if (errs.isNotEmpty()) DiagLog.add("токены: $errs")
+                                                val tail = if (errs.isEmpty()) "" else "; $errs"
+                                                render("интерпретатор: ${text.length} символов; $check; $vmSummary; $diff$tail")
+                                            }
                                         }
+                                    }
                                 }
                             }
                         }
@@ -292,6 +308,38 @@ class ProfileActivity : AppCompatActivity() {
             }.start()
         }
     }
+    /** Прогон машины проверки (шаг 7): ждём снимок из страницы. */
+    private fun pollStep7(attempt: Int) {
+        tokenWebView.postDelayed({
+            tokenWebView.evaluateJavascript(TokenProbe.step7PollScript()) { raw ->
+                val (result, stages) = TokenProbe.splitPoll(raw)
+                if (result.isEmpty()) {
+                    if (attempt < 12) {
+                        pollStep7(attempt + 1)
+                    } else {
+                        DiagLog.add("токены: прогон проверки - ответа нет (этапы: $stages)")
+                        render("прогон проверки: ответа нет")
+                    }
+                    return@evaluateJavascript
+                }
+                val stage = TokenProbe.step7Stage(result)
+                val summary = TokenProbe.summarizeStep7(result)
+                if (TokenProbe.step7Final(stage)) {
+                    DiagLog.add("токены: $summary")
+                    render(summary)
+                } else {
+                    render("прогон проверки: $summary")
+                    if (attempt < 15) {
+                        pollStep7(attempt + 1)
+                    } else {
+                        DiagLog.add("токены: прогон проверки затянулся: $summary")
+                        render("прогон проверки затянулся: $summary")
+                    }
+                }
+            }
+        }, 1_000)
+    }
+
     /** Опрос разбора проверки (шаг 3) — тем же способом, что и сам запрос. */
     private fun pollChallengeDetail(attempt: Int) {
         tokenWebView.postDelayed({

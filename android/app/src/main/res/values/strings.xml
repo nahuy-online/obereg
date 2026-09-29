@@ -70,6 +70,7 @@
     <string name="profile_challenge_detail">Разбор проверки и загрузка программы (шаг 3)</string>
     <string name="profile_report">Скопировать отчёт для разработчика</string>
     <string name="profile_program_load">Загрузить программу проверки (шаг 4)</string>
+    <string name="profile_vm_run">Шаг 7 — прогон проверки</string>
     <string name="profile_program_introspect">Разбор программы и интерпретатор (шаг 5)</string>
     <string name="profile_interpreter_load">Подгрузить интерпретатор проверки (шаг 6)</string>
     <string name="profile_status_idle">настройки: изменения сохраняются сразу</string>

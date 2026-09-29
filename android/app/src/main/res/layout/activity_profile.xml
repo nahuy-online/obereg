@@ -133,6 +133,13 @@
         android:text="@string/profile_program_load" />
 
     <Button
+        android:id="@+id/btnVmRun"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="@string/profile_vm_run" />
+
+    <Button
         android:id="@+id/btnProfileReport"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

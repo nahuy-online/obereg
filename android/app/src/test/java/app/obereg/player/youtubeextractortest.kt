@@ -758,4 +758,21 @@ class YouTubeExtractorTest {
         assertEquals("", TokenProbe.normalizeInterpreterUrl("null"))
         assertEquals("", TokenProbe.normalizeInterpreterUrl(""))
     }
+
+    @Test
+    fun step7Summaries() {
+        val run = """{"stage":"запущена","name":"vmok","program":35747}"""
+        assertTrue("имя машины видно: ${TokenProbe.summarizeStep7(run)}", TokenProbe.summarizeStep7(run).contains("vmok"))
+        val snap = """{"stage":"снимок","len":1234,"head":"abc","signals":1}"""
+        val s = TokenProbe.summarizeStep7(snap)
+        assertTrue("размер снимка: $s", s.contains("1234"))
+        assertTrue("сигналы видны: $s", s.contains("сигналов: 1"))
+        assertTrue("снимок финален", TokenProbe.step7Final("снимок"))
+        assertTrue("старт не финален", !TokenProbe.step7Final("старт"))
+        assertTrue("этап читается", TokenProbe.step7Stage(snap) == "снимок")
+        val vm = """{"candidates":["vmok(a:function,ad:function)"],"fromChallenge":"5:vmok","picked":"vmok"}"""
+        assertTrue("машина найдена: ${TokenProbe.summarizeVmFind(vm)}", TokenProbe.summarizeVmFind(vm).contains("vmok"))
+        assertTrue("ошибки видны", TokenProbe.summarizeErrors("""{"errs":["SyntaxError x"]}""").contains("ошибки страницы"))
+        assertTrue("без ошибок пусто", TokenProbe.summarizeErrors("""{"errs":[]}""").isEmpty())
+    }
 }

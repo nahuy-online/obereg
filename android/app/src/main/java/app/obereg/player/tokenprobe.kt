@@ -460,18 +460,20 @@ object TokenProbe {
     fun globalsSnapshotScript(): String = """
         (function(){
           try {
-            if (!window.__oberegKeysBefore) {
-              window.__oberegKeysBefore = Object.keys(window).join(',');
+            var names = Object.getOwnPropertyNames(window);
+            if (!window.__oberegNamesBefore) {
+              window.__oberegNamesBefore = names.join(',');
               return 'saved';
             }
-            var before = window.__oberegKeysBefore.split(',');
-            var now = Object.keys(window);
+            var before = window.__oberegNamesBefore.split(',');
             var added = [];
-            for (var i = 0; i < now.length; i++) {
-              var key = now[i];
+            for (var i = 0; i < names.length; i++) {
+              var key = names[i];
               if (before.indexOf(key) >= 0) { continue; }
               if (key.indexOf('__obereg') === 0) { continue; }
-              added.push(key + ':' + (typeof window[key]));
+              var kind = 'недоступно';
+              try { kind = typeof window[key]; } catch (e2) { }
+              added.push(key + ':' + kind);
             }
             return JSON.stringify({ added: added.slice(0, 25) });
           } catch (e) {
@@ -491,6 +493,248 @@ object TokenProbe {
             "сравнение имён: новых сущностей нет"
         } else {
             "после интерпретатора появились: ${added.take(8).joinToString(", ")}"
+        }
+    }
+
+    /** Ставит перехват ошибок страницы — чтобы видеть сбои вложенного кода. */
+    fun armErrorsScript(): String = """
+        (function(){
+          window.__oberegErrs = [];
+          window.onerror = function(message, source, line, column) {
+            window.__oberegErrs.push(String(message).slice(0, 140) + ' @' + line + ':' + column);
+            return false;
+          };
+          return 'armed';
+        })()
+    """.trimIndent()
+
+    /** Чтение перехваченных ошибок. */
+    fun errorsReportScript(): String =
+        "JSON.stringify({ errs: (window.__oberegErrs || []).slice(0, 3) })"
+
+    /** Сводка ошибок страницы (пустая строка, если их нет). */
+    fun summarizeErrors(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return ""
+        val root = runCatching { JSONObject(jsonText) }.getOrNull() ?: return ""
+        val errs = root.optJSONArray("errs")?.let(::names).orEmpty()
+        return if (errs.isEmpty()) "" else "ошибки страницы: ${errs.take(2).joinToString("; ").take(200)}"
+    }
+
+    /**
+     * Ищет машину проверки: объект с методом `a` — именно так её находит эталонный клиент.
+     * Дополнительно показывает короткие строки из проверки (там бывает имя объекта).
+     */
+    fun vmFindScript(): String = """
+        (function(){
+          try {
+            var names = Object.getOwnPropertyNames(window);
+            var candidates = [];
+            for (var i = 0; i < names.length; i++) {
+              var key = names[i];
+              if (key.indexOf('__obereg') === 0) { continue; }
+              var value;
+              try { value = window[key]; } catch (e2) { continue; }
+              if (!value || (typeof value !== 'object' && typeof value !== 'function')) { continue; }
+              var hasA = false;
+              try { hasA = typeof value.a === 'function'; } catch (e3) { hasA = false; }
+              if (!hasA) { continue; }
+              var fields = [];
+              try {
+                var own = Object.getOwnPropertyNames(value).slice(0, 8);
+                for (var j = 0; j < own.length; j++) { fields.push(own[j] + ':' + (typeof value[own[j]])); }
+              } catch (e4) { }
+              candidates.push(key + '(' + fields.join(',') + ')');
+            }
+            var fromChallenge = '';
+            try {
+              var root = JSON.parse(window.__oberegLastChallenge || '{}');
+              var challenge = root.challenge || [];
+              for (var k = 0; k < challenge.length; k++) {
+                var item = challenge[k];
+                var short = (typeof item === 'string') && item.length >= 1 && item.length <= 24;
+                if (short && /^[A-Za-z_][A-Za-z0-9_]*$/.test(item)) { fromChallenge = k + ':' + item; break; }
+              }
+            } catch (e5) { }
+            var picked = '';
+            if (candidates.length > 0) {
+              var head = candidates[0];
+              var cut = head.indexOf('(');
+              if (cut > 0) { picked = head.slice(0, cut); }
+            } else if (fromChallenge) {
+              var name2 = fromChallenge.slice(fromChallenge.indexOf(':') + 1);
+              try {
+                if (window[name2] && typeof window[name2].a === 'function') { picked = name2; }
+              } catch (e6) { }
+            }
+            if (picked) { window.__oberegVmName = picked; }
+            return JSON.stringify({
+              candidates: candidates.slice(0, 6),
+              fromChallenge: fromChallenge,
+              picked: picked
+            });
+          } catch (e) {
+            return JSON.stringify({error: String(e)});
+          }
+        })()
+    """.trimIndent()
+
+    /** Сводка поиска машины проверки. */
+    fun summarizeVmFind(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "машина проверки: движок не ответил"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "машина проверки не прочитана: ${jsonText.take(120)}"
+        if (root.has("error")) return "машина проверки: ${root.optString("error").take(120)}"
+        val candidates = root.optJSONArray("candidates")?.let(::names).orEmpty()
+        val fromChallenge = root.optString("fromChallenge")
+        val picked = root.optString("picked")
+        return buildString {
+            if (picked.isNotEmpty()) {
+                append("машина проверки найдена: $picked")
+                if (candidates.isNotEmpty()) append(" (поля: ${candidates.first().take(90)})")
+            } else {
+                append("машина проверки пока не найдена")
+            }
+            if (fromChallenge.isNotEmpty()) append(", из проверки: $fromChallenge")
+        }
+    }
+
+    /**
+     * Шаг 7: прогон машины проверки и снимок (заявка на токен целостности).
+     *
+     * Работает в странице самостоятельно: находит машину, запускает её с программой
+     * из проверки, ждёт четыре функции и делает снимок без привязки.
+     */
+    fun step7Script(): String = """
+        (function(){
+          function put(obj) { try { window.__oberegStep7 = JSON.stringify(obj); } catch (e) { } }
+          put({ stage: 'старт' });
+          try {
+            var name = window.__oberegVmName;
+            var vm = name ? window[name] : null;
+            if (!vm || typeof vm.a !== 'function') {
+              var names = Object.getOwnPropertyNames(window);
+              for (var i = 0; i < names.length; i++) {
+                var key = names[i];
+                if (key.indexOf('__obereg') === 0) { continue; }
+                var value;
+                try { value = window[key]; } catch (e2) { continue; }
+                if (value && typeof value === 'object' && typeof value.a === 'function') { name = key; vm = value; break; }
+              }
+            }
+            if (!vm || typeof vm.a !== 'function') { put({ stage: 'без-машины' }); return 'started'; }
+            window.__oberegVmName = name;
+            var root = {};
+            try { root = JSON.parse(window.__oberegLastChallenge || '{}'); } catch (e3) { }
+            var botguard = root.botguardData || {};
+            var program = botguard.program;
+            if (typeof program !== 'string' || program.length < 100) { put({ stage: 'без-программы' }); return 'started'; }
+            window.__oberegVmReady = false;
+            window.__oberegVmSnap = null;
+            window.__oberegVmSync = null;
+            window.__oberegSnapshot = '';
+            window.__oberegSignalOut = [];
+            var setup = function(snap, shutdown, pass, camera) {
+              window.__oberegVmFns = { snap: typeof snap, shutdown: typeof shutdown, pass: typeof pass, camera: typeof camera };
+              if (typeof snap === 'function') { window.__oberegVmSnap = snap; }
+              window.__oberegVmReady = true;
+            };
+            var telemetry = function() { };
+            var loggers = [function() { }, function() { }, function() { }, function() { }, function() { }];
+            var outcome = null;
+            try {
+              outcome = vm.a(program, setup, true, undefined, telemetry, [[], []], undefined, false, loggers);
+            } catch (e4) {
+              put({ stage: 'сбой-запуска', error: String(e4).slice(0, 140) });
+              return 'started';
+            }
+            if (outcome && typeof outcome.then === 'function') {
+              outcome.then(function(result) {
+                if (result && result.length > 0 && typeof result[0] === 'function') { window.__oberegVmSync = result[0]; }
+              }, function(error) { window.__oberegVmError = String(error).slice(0, 140); });
+            } else if (outcome && outcome.length > 0 && typeof outcome[0] === 'function') {
+              window.__oberegVmSync = outcome[0];
+            }
+            put({ stage: 'запущена', name: name, program: program.length });
+            var startSnapshot = function() {
+              window.__oberegSnapshot = '';
+              var done = function(value) {
+                var text = String(value);
+                window.__oberegSnapshot = text;
+                put({
+                  stage: 'снимок', len: text.length, head: text.slice(0, 90),
+                  signals: window.__oberegSignalOut.length,
+                  fns: JSON.stringify(window.__oberegVmFns)
+                });
+              };
+              try {
+                window.__oberegVmSnap(done, [undefined, undefined, window.__oberegSignalOut, undefined]);
+              } catch (e5) {
+                if (typeof window.__oberegVmSync === 'function') {
+                  try {
+                    var direct = window.__oberegVmSync([undefined, undefined, window.__oberegSignalOut, undefined]);
+                    done(direct);
+                    return;
+                  } catch (e6) { put({ stage: 'сбой-снимка', error: String(e6).slice(0, 140) }); return; }
+                }
+                put({ stage: 'сбой-снимка', error: String(e5).slice(0, 140) });
+                return;
+              }
+              setTimeout(function() {
+                if (window.__oberegSnapshot) {
+                  put({ stage: 'снимок', len: window.__oberegSnapshot.length, head: window.__oberegSnapshot.slice(0, 90), signals: window.__oberegSignalOut.length });
+                } else {
+                  put({ stage: 'снимок-молчит', fns: JSON.stringify(window.__oberegVmFns || {}) });
+                }
+              }, 6000);
+            };
+            var attempts = 0;
+            var waitSetup = function() {
+              attempts++;
+              if (window.__oberegVmReady) { put({ stage: 'готова', fns: JSON.stringify(window.__oberegVmFns) }); startSnapshot(); return; }
+              if (window.__oberegVmError) { put({ stage: 'сбой-машины', error: window.__oberegVmError }); return; }
+              if (attempts > 20) { put({ stage: 'нет-функций', fns: JSON.stringify(window.__oberegVmFns || {}) }); return; }
+              setTimeout(waitSetup, 300);
+            };
+            waitSetup();
+            return 'started';
+          } catch (e) {
+            put({ stage: 'сбой', error: String(e).slice(0, 140) });
+            return 'started';
+          }
+        })()
+    """.trimIndent()
+
+    /** Опрос состояния шага 7. */
+    fun step7PollScript(): String =
+        "(window.__oberegStep7 || '') + '||' + (window.__oberegStages || '')"
+
+    /** Этап шага 7 из ответа страницы. */
+    fun step7Stage(jsonText: String?): String {
+        val root = runCatching { JSONObject(jsonText.orEmpty()) }.getOrNull() ?: return ""
+        return root.optString("stage")
+    }
+
+    /** Финальные этапы прогона (промежуточные — ждём дальше). */
+    fun step7Final(stage: String): Boolean = stage in setOf(
+        "снимок", "сбой", "сбой-запуска", "сбой-машины", "сбой-снимка",
+        "нет-функций", "снимок-молчит", "без-машины", "без-программы",
+    )
+
+    /** Сводка шага 7. */
+    fun summarizeStep7(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "прогон проверки: движок не ответил"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "прогон проверки не прочитан: ${jsonText.take(120)}"
+        return when (val stage = root.optString("stage")) {
+            "снимок" -> "снимок получен (${root.optInt("len")} символов), сигналов: ${root.optInt("signals")}; начало: ${root.optString("head").take(70)}"
+            "запущена" -> "машина проверки запущена (имя: ${root.optString("name")}, программа: ${root.optInt("program")} символов)"
+            "готова" -> "машина проверки отдала функции: ${root.optString("fns").take(140)}"
+            "без-машины" -> "машина проверки не найдена — сначала шаг 6"
+            "без-программы" -> "программы нет — сначала шаги 2 и 3"
+            "сбой", "сбой-запуска", "сбой-машины", "сбой-снимка" -> "сбой: ${root.optString("error").take(140)}"
+            "нет-функций" -> "машина не отдала функции: ${root.optString("fns").take(120)}"
+            "снимок-молчит" -> "снимок не ответил за 6 секунд (функции: ${root.optString("fns").take(100)})"
+            else -> "прогон проверки: этап \"$stage\""
         }
     }
 
