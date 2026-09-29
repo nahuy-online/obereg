@@ -80,8 +80,30 @@ object TokenProbe {
      */
     fun challengeScript(): String = """
         (function(){
+          var stages = [];
+          window.__oberegStages = '';
           window.__oberegChallenge = '';
+          function mark(name) {
+            stages.push(name);
+            window.__oberegStages = stages.join(' → ');
+          }
           try {
+            // Свежая проверка (до 5 минут) переиспользуется: частые запросы сервис игнорирует.
+            if (window.__oberegLastChallenge && window.__oberegLastChallengeAt) {
+              var ageSeconds = Math.round((Date.now() - window.__oberegLastChallengeAt) / 1000);
+              if (ageSeconds < 300) {
+                mark('использую сохранённую проверку (' + ageSeconds + ' с)');
+                window.__oberegChallenge = JSON.stringify({
+                  status: 200,
+                  length: window.__oberegLastChallenge.length,
+                  keys: [],
+                  head: '',
+                  reused: true,
+                  ageSeconds: ageSeconds
+                });
+                return 'started';
+              }
+            }
             if (typeof ytcfg === 'undefined' || !ytcfg.get) {
               window.__oberegChallenge = JSON.stringify({error: 'нет конфигурации страницы'});
               return 'started';
@@ -92,13 +114,26 @@ object TokenProbe {
               window.__oberegChallenge = JSON.stringify({error: 'нет контекста или ключа'});
               return 'started';
             }
+            mark('контекст и ключ есть');
+            setTimeout(function(){
+              if (window.__oberegChallenge === '') {
+                window.__oberegChallenge = JSON.stringify({
+                  error: 'сервис не ответил за 8 секунд',
+                  stages: stages.join(' → ')
+                });
+              }
+            }, 8000);
+            mark('запрос отправлен');
             fetch('/youtubei/v1/att/get?key=*** + key + '&prettyPrint=false', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({context: context})
             }).then(function(response){
+              mark('ответ получен: HTTP ' + response.status);
               return response.text().then(function(text){
+                mark('тело прочитано: ' + text.length + ' символов');
                 window.__oberegLastChallenge = text;
+                window.__oberegLastChallengeAt = Date.now();
                 var keys = [];
                 try { keys = Object.keys(JSON.parse(text)).slice(0, 20); } catch (e) { keys = ['не JSON']; }
                 window.__oberegChallenge = JSON.stringify({
@@ -109,10 +144,10 @@ object TokenProbe {
                 });
               });
             }).catch(function(e){
-              window.__oberegChallenge = JSON.stringify({error: 'сеть: ' + String(e)});
+              window.__oberegChallenge = JSON.stringify({error: 'сеть: ' + String(e), stages: stages.join(' → ')});
             });
           } catch (e) {
-            window.__oberegChallenge = JSON.stringify({error: String(e)});
+            window.__oberegChallenge = JSON.stringify({error: String(e), stages: stages.join(' → ')});
           }
           return 'started';
         })()
@@ -151,12 +186,17 @@ object TokenProbe {
 
         val status = root.optInt("status")
         val length = root.optInt("length")
+        val reused = root.optBoolean("reused")
+        val age = root.optInt("ageSeconds")
         val keys = root.optJSONArray("keys")?.let { array ->
             (0 until array.length()).mapNotNull { array.optString(it).takeIf { key -> key.isNotEmpty() } }
         }.orEmpty()
         val head = root.optString("head")
         return buildString {
             append("проверка: HTTP $status, ответ $length символов")
+            if (reused) {
+                append(" (сохранённая, возраст $age с — сервис не дёргаем)")
+            }
             if (keys.isNotEmpty()) {
                 append(", поля: ")
                 append(keys.take(6).joinToString(", "))

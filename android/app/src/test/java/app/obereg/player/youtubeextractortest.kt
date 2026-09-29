@@ -699,4 +699,11 @@ class YouTubeExtractorTest {
         assertTrue("ошибка со этапами: $err", err.contains("не ответил") && err.contains("этапы"))
         assertTrue("пустой вход", TokenProbe.summarizeChallengeDetail(null).contains("ответа нет"))
     }
+
+    @Test
+    fun challengeReuseIsVisible() {
+        val summary = TokenProbe.summarizeChallenge("""{"status":200,"length":36242,"keys":[],"head":"","reused":true,"ageSeconds":42}""")
+        assertTrue("сохранённая проверка видна: $summary", summary.contains("сохранённая") && summary.contains("42"))
+        assertTrue("размер назван", summary.contains("36242"))
+    }
 }
