@@ -383,33 +383,34 @@ object TokenProbe {
     /**
      * Поиск адреса интерпретатора.
      *
-     * В ответе сервиса адрес лежит не строкой, а в обёртке (объект с закрытым полем),
-     * поэтому строковой проверки мало — ищем ссылку обходом.
+     * Имена полей в обёртке меняются, поэтому не угадываем: собираем все ссылки
+     * из данных проверки обходом.
      */
     fun interpreterFindScript(): String = """
         (function(){
-          function findUrl(obj, depth) {
-            if (!obj || depth > 5) { return null; }
-            if (typeof obj === 'string') { return obj.indexOf('http') === 0 ? obj : null; }
+          function collect(obj, depth, found) {
+            if (!obj || depth > 6 || found.length >= 6) { return; }
+            if (typeof obj === 'string') {
+              if (obj.indexOf('http') === 0 && found.indexOf(obj) < 0) { found.push(obj); }
+              return;
+            }
             if (typeof obj === 'object') {
               for (var key in obj) {
-                if (key === 'privateDoNotAccessOrElseSafeScriptWrappedValue') { return obj[key]; }
-                var found = findUrl(obj[key], depth + 1);
-                if (found) { return found; }
+                collect(obj[key], depth + 1, found);
               }
             }
-            return null;
           }
           try {
             var text = window.__oberegLastChallenge;
             if (!text) { return JSON.stringify({error: 'нет сохранённой проверки'}); }
             var root = JSON.parse(text);
             var data = root.botguardData || {};
-            var url = findUrl(data.interpreterSafeUrl, 0);
+            var found = [];
+            collect(data, 0, found);
             return JSON.stringify({
               botguardKeys: Object.keys(data).slice(0, 12),
               urlType: typeof data.interpreterSafeUrl,
-              url: url,
+              urls: found,
               hasInterpreterText: (typeof window.__oberegInterpreterText === 'string')
             });
           } catch (e) {
@@ -424,13 +425,14 @@ object TokenProbe {
         val root = runCatching { JSONObject(jsonText) }.getOrNull()
             ?: return "поиск интерпретатора не прочитан: ${jsonText.take(120)}"
         if (root.has("error")) return "поиск интерпретатора: ${root.optString("error").take(140)}"
-        val url = root.optString("url")
+        val urls = root.optJSONArray("urls")?.let(::names).orEmpty()
         val keys = root.optJSONArray("botguardKeys")?.let(::names).orEmpty()
         return buildString {
             append("поиск интерпретатора: поля данных — ${keys.take(6).joinToString(", ").ifEmpty { "пусто" }}")
             append(", тип адреса: ${root.optString("urlType")}")
             append(", адрес: ")
-            append(if (url.isEmpty() || url == "null") "не найден" else "${url.take(70)}…")
+            append(", ссылок: ${urls.size}")
+            if (urls.isNotEmpty()) append(", первая: ${urls.first().take(90)}…")
         }
     }
 

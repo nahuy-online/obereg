@@ -123,8 +123,10 @@ class ProfileActivity : AppCompatActivity() {
                 val root = runCatching {
                     org.json.JSONObject(PlayerApi.decodeJsString(raw).orEmpty())
                 }.getOrNull()
-                val url = root?.optString("url").orEmpty()
-                if (url.isEmpty() || url == "null") {
+                val urls = root?.optJSONArray("urls")
+                var url = ""
+                if (urls != null && urls.length() > 0) { url = urls.optString(0) }
+                if (url.isEmpty()) {
                     DiagLog.add("токены: адрес интерпретатора не найден")
                     return@evaluateJavascript
                 }
