@@ -173,7 +173,7 @@ gradle -p android :app:assembleDebug
 | Точка входа | `app.obereg.player.MainActivity` (+ `PlayerActivity`) |
 | Нативные библиотеки внутри APK | `lib/{arm64-v8a,armeabi-v7a,x86_64}/libobereg_{jni,ffi}.so` |
 | `native-code` | arm64-v8a, armeabi-v7a, x86_64 |
-| SHA-256 | `30617A55B564D66E8BE2C1B2E0097D69EB7C76BA85BA9E813FFDEA4DC3FA7A73` |
+| SHA-256 | `AC2896C290B7ECFD56BDBFB6F615DECF27FD4CA8BDDD187679740287715E0ED5` |
 
 Осталось только установить APK на телефон/эмулятор и пройти сценарий с экрана
 (команды — в `android/README.md`, раздел «Приёмка на устройстве»).
@@ -984,3 +984,15 @@ id/promoIdInput, id/btnSavePromo и классы AppSettings, SettingsCodec, Pro
 ресурсы id/btnOpenFeed, id/feedList, id/btnFeedRecommended, id/btnFeedSubscriptions; классы
 FeedActivity, FeedCodec; и главное — символ Java_app_obereg_core_CoreBridge_analyzeFeed
 в libobereg_jni.so (нативный разбор ленты доехал до сборки).
+
+### 2.42 Чистка главного экрана и лечение «страницы согласия»
+
+| Что | Зачем |
+|---|---|
+| Убраны кнопки «Каталог видео» и «Библиотека» с главного экрана | Продукт — браузер для сервиса; каталог был заглушкой, библиотека не нужна (история есть в профиле) |
+| Cookie согласия и общие cookie в запросах страниц | Симптом: «366 673 символов, страница согласия, ytInitialData есть» — данные были, но вместо ленты приходила страница «Прежде чем продолжить» |
+| Заголовок Cookie собирается из двух источников (`youtube.com` + `google.com`) и дополняется согласием | В WebView согласие уже принято, но наше отдельное обращение шло без него |
+
+Проверено: **46 тестов оболочки** (добавлен тест сборки заголовка), в APK подтверждён
+`buildCookieHeader`, кнопок каталога и библиотеки в ресурсах нет, APK стал меньше
+(20 072 599 против 20 072 687 байт).

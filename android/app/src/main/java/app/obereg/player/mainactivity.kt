@@ -61,24 +61,14 @@ class MainActivity : AppCompatActivity() {
             TunnelService.start(this)
         }
 
-        findViewById<Button>(R.id.btnOpenCatalog).setOnClickListener {
-            log("нажато: каталог видео")
-            safe("открытие каталога") {
-                startActivity(android.content.Intent(this, CatalogActivity::class.java))
-            }
-        }
+
         findViewById<Button>(R.id.btnOpenYouTube).setOnClickListener {
             log("нажато: YouTube (встроенный плеер)")
             safe("открытие YouTube") {
                 startActivity(android.content.Intent(this, YouTubeActivity::class.java))
             }
         }
-        findViewById<Button>(R.id.btnOpenLibrary).setOnClickListener {
-            log("нажато: библиотека (история и закладки)")
-            safe("открытие библиотеки") {
-                startActivity(android.content.Intent(this, LibraryActivity::class.java))
-            }
-        }
+
         findViewById<Button>(R.id.btnOpenFeed).setOnClickListener {
             log("нажато: лента")
             safe("открытие ленты") {

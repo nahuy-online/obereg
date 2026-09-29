@@ -310,6 +310,33 @@ object PlayerApi {
         is ExtractResult.SeparateStreams -> "пара видео+звук найдена"
     }
 
+    /**
+     * Собрать заголовок Cookie для запроса страницы.
+     *
+     * Берём cookie сайта, добавляем недостающие из общего домена и обязательно отмечаем
+     * согласие: без него сервис отдаёт страницу «Прежде чем продолжить» вместо ленты
+     * (ровно это и видел пользователь: 366 тыс. символов, страница согласия).
+     */
+    fun buildCookieHeader(siteCookies: String?, sharedCookies: String?): String {
+        val pairs = LinkedHashMap<String, String>()
+        fun addAll(raw: String?) {
+            raw?.split(';')?.forEach { part ->
+                val trimmed = part.trim()
+                if (trimmed.isEmpty()) return@forEach
+                val equals = trimmed.indexOf('=')
+                if (equals <= 0) return@forEach
+                val name = trimmed.substring(0, equals).trim()
+                if (!pairs.containsKey(name)) pairs[name] = trimmed
+            }
+        }
+        addAll(siteCookies)
+        addAll(sharedCookies)
+        if (!pairs.containsKey("CONSENT")) {
+            pairs["CONSENT"] = "CONSENT=YES+cb.20240101-00-p0.ru+FX+000"
+        }
+        return pairs.values.joinToString("; ")
+    }
+
     /** Похоже ли на поток видеофайла (а не на страницу или картинку). */
     fun looksLikeStream(url: String): Boolean =
         url.contains("googlevideo.com") && url.contains("videoplayback")

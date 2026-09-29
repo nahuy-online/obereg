@@ -118,9 +118,13 @@ class FeedActivity : AppCompatActivity() {
                     builder.proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress(parts[0], parts[1].toInt())))
                 }
             }
-            val cookies = runCatching {
+            val siteCookies = runCatching {
                 android.webkit.CookieManager.getInstance().getCookie("https://www.youtube.com/")
             }.getOrNull()
+            val sharedCookies = runCatching {
+                android.webkit.CookieManager.getInstance().getCookie("https://www.google.com/")
+            }.getOrNull()
+            val cookieHeader = PlayerApi.buildCookieHeader(siteCookies, sharedCookies)
             val request = Request.Builder()
                 .url(url)
                 .header(
@@ -129,7 +133,7 @@ class FeedActivity : AppCompatActivity() {
                         "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
                 )
                 .header("Accept-Language", "ru-RU,ru;q=0.9")
-                .apply { if (!cookies.isNullOrBlank()) header("Cookie", cookies) }
+                .header("Cookie", cookieHeader)
                 .build()
             builder.build().newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {

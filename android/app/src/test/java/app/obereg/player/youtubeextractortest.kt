@@ -535,5 +535,15 @@ class YouTubeExtractorTest {
         assertTrue("признаки данных: $withData", withData.contains("ytInitialData есть"))
     }
 
-
+    @Test
+    fun cookieHeaderMergesAndAddsConsent() {
+        // Без cookie согласия сервис отдаёт страницу «Прежде чем продолжить» — на этом лента и пустела.
+        val header = PlayerApi.buildCookieHeader("VISITOR_INFO1_LIVE=aaa; SAPISID=bbb", "SOCS=ccc")
+        assertTrue("cookie сайта на месте", header.contains("VISITOR_INFO1_LIVE=aaa"))
+        assertTrue("cookie общего домена добавлено", header.contains("SOCS=ccc"))
+        assertTrue("согласие добавлено: $header", header.contains("CONSENT="))
+        val merged = PlayerApi.buildCookieHeader("CONSENT=site", "CONSENT=shared; SOCS=ccc")
+        assertEquals("повторы не дублируются", 1, Regex("CONSENT=").findAll(merged).count())
+        assertTrue("значение сайта главнее", merged.contains("CONSENT=site"))
+    }
 }
