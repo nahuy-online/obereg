@@ -58,6 +58,7 @@ $sources = @(
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\AppSettings.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\Feed.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\TokenProbe.kt"),
+    (Join-Path $repo "android\app\src\main\java\app\obereg\player\TokenStore.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\core\CoreBridge.kt"),
     (Join-Path $repo "android\app\src\test\java\app\obereg\player\YouTubeExtractorTest.kt")
 )

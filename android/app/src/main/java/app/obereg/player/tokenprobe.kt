@@ -3,11 +3,11 @@ package app.obereg.player
 import org.json.JSONObject
 
 /**
- * Разведка движка токенов — часть P1 этапа аттестации.
+ * Разведка и проверка движка — этап аттестации (P1 и начало P2).
  *
- * Задача этой части: понять, что именно отдаёт наша скрытая WebView, когда открывает
- * страницу сервиса. Никаких подделок: движок просто сообщает факты (есть ли конфигурация,
- * гостевые данные, объекты проверки), а следующий шаг делается по этим фактам.
+ * Задача: понять, что отдаёт наша скрытая WebView, и запросить у сервиса проверку —
+ * тем же путём, что делает обычный браузер. Никаких подделок: движок сообщает факты,
+ * а решение о следующем шаге принимается по ним.
  */
 object TokenProbe {
 
@@ -48,10 +48,10 @@ object TokenProbe {
         if (text.isNullOrEmpty()) return "движок не ответил"
         val root = runCatching { JSONObject(text) }.getOrNull()
             ?: return "ответ движка не разобран: ${text.take(120)}"
-        if (root.has("error")) return "ошибка в движке: ${root.optString("error").take(120)}"
+        if (root.has("error")) return "ошибка в движке: ${root.optString("error").take(140)}"
 
         val visitor = root.optString("visitorData")
-        val parts = mutableListOf(
+        return listOf(
             "конфигурация: " + if (root.optBoolean("hasYtcfg")) "есть" else "нет",
             "гостевые данные: " + if (visitor.isNullOrEmpty() || visitor == "null") {
                 "нет"
@@ -68,19 +68,25 @@ object TokenProbe {
                 "не найден"
             },
             "скриптов на странице: ${root.optInt("scriptCount")}",
-        )
-        return parts.joinToString(", ")
+        ).joinToString(", ")
     }
 
     /**
-     * Запрос проверки (шаг P2) — делается **изнутри движка**: страница сама обращается
-     * к сервису со своим контекстом и ключом, а мы только читаем, что вернулось.
+     * Запрос проверки (шаг P2): страница сама обращается к сервису со своим контекстом и ключом.
      *
-     * Ничего не подделываем: это тот же запрос, который делает страница.
+     * Результат складывается в `window.__oberegChallenge`, а по пути пишутся этапы
+     * (`window.__oberegStages`) — по ним видно, где именно запрос застрял, если ответа нет.
+     * Жёсткий предел — 7 секунд: лучше честный отчёт, чем тишина.
      */
     fun challengeScript(): String = """
         (function(){
+          var stages = [];
+          window.__oberegStages = '';
           window.__oberegChallenge = '';
+          function mark(name) {
+            stages.push(name);
+            window.__oberegStages = stages.join(' → ');
+          }
           try {
             if (typeof ytcfg === 'undefined' || !ytcfg.get) {
               window.__oberegChallenge = JSON.stringify({error: 'нет конфигурации страницы'});
@@ -92,12 +98,23 @@ object TokenProbe {
               window.__oberegChallenge = JSON.stringify({error: 'нет контекста или ключа'});
               return 'started';
             }
-            fetch('/youtubei/v1/att/get?key=*** + key + '&prettyPrint=false', {
+            mark('контекст и ключ есть');
+            setTimeout(function(){
+              if (window.__oberegChallenge === '') {
+                window.__oberegChallenge = JSON.stringify({
+                  error: 'сервис не ответил за 7 секунд',
+                  stages: stages.join(' → ')
+                });
+              }
+            }, 7000);
+            fetch('/youtubei/v1/att/get?key=' + key + '&prettyPrint=false', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({context: context})
             }).then(function(response){
+              mark('ответ получен: HTTP ' + response.status);
               return response.text().then(function(text){
+                mark('тело прочитано: ' + text.length + ' символов');
                 var keys = [];
                 try { keys = Object.keys(JSON.parse(text)).slice(0, 20); } catch (e) { keys = ['не JSON']; }
                 window.__oberegChallenge = JSON.stringify({
@@ -108,24 +125,45 @@ object TokenProbe {
                 });
               });
             }).catch(function(e){
-              window.__oberegChallenge = JSON.stringify({error: 'сеть: ' + String(e)});
+              window.__oberegChallenge = JSON.stringify({error: 'сеть: ' + String(e), stages: stages.join(' → ')});
             });
           } catch (e) {
-            window.__oberegChallenge = JSON.stringify({error: String(e)});
+            window.__oberegChallenge = JSON.stringify({error: String(e), stages: stages.join(' → ')});
           }
           return 'started';
         })()
     """.trimIndent()
 
-    /** Забрать готовый ответ проверки из страницы (ответ асинхронный — его опрашивают). */
-    fun challengePollScript(): String = "window.__oberegChallenge || ''"
+    /** Забрать ответ проверки и этапы: «ответ||этапы». */
+    fun challengePollScript(): String =
+        "(window.__oberegChallenge || '') + '||' + (window.__oberegStages || '')"
 
+    /** Разделить ответ опроса на результат и этапы. */
+    fun splitPoll(raw: String?): Pair<String, String> {
+        val text = PlayerApi.decodeJsString(raw).orEmpty()
+        val parts = text.split("||", limit = 2)
+        val result = parts.getOrNull(0).orEmpty().trim()
+        val stages = parts.getOrNull(1).orEmpty().trim()
+        return result to stages
+    }
+
+    /** Сводка ответа на запрос проверки (на вход — обычный JSON-текст). */
     fun summarizeChallenge(jsonText: String?): String {
-        val text = jsonText
-        if (text.isNullOrEmpty()) return "движок не ответил на запрос проверки"
-        val root = runCatching { JSONObject(text) }.getOrNull()
-            ?: return "ответ на проверку не разобран: ${text.take(120)}"
-        if (root.has("error")) return "ошибка запроса проверки: ${root.optString("error").take(140)}"
+        if (jsonText.isNullOrEmpty()) return "движок не ответил на запрос проверки"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "ответ на проверку не разобран: ${jsonText.take(120)}"
+        if (root.has("error")) {
+            val stages = root.optString("stages")
+            return buildString {
+                append("ошибка запроса проверки: ")
+                append(root.optString("error").take(160))
+                if (stages.isNotEmpty()) {
+                    append(" (этапы: ")
+                    append(stages.take(160))
+                    append(")")
+                }
+            }
+        }
 
         val status = root.optInt("status")
         val length = root.optInt("length")

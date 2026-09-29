@@ -125,17 +125,18 @@ class ProfileActivity : AppCompatActivity() {
     private fun pollChallenge(attempt: Int) {
         tokenWebView.postDelayed({
             tokenWebView.evaluateJavascript(TokenProbe.challengePollScript()) { raw ->
-                val text = PlayerApi.decodeJsString(raw)
-                if (text.isNullOrEmpty()) {
-                    if (attempt < 10) {
+                val (result, stages) = TokenProbe.splitPoll(raw)
+                if (result.isEmpty()) {
+                    if (attempt < 12) {
                         pollChallenge(attempt + 1)
                     } else {
-                        DiagLog.add("токены: запрос проверки — ответа нет за 10 секунд")
-                        render("запрос проверки: ответа нет за 10 секунд")
+                        val tail = if (stages.isEmpty()) "этапов нет" else "этапы: $stages"
+                        DiagLog.add("токены: запрос проверки — ответа нет ($tail)")
+                        render("запрос проверки: ответа нет за 12 секунд — $tail")
                     }
                     return@evaluateJavascript
                 }
-                val summary = TokenProbe.summarizeChallenge(text)
+                val summary = TokenProbe.summarizeChallenge(result)
                 DiagLog.add("токены: $summary")
                 render("запрос проверки: $summary")
             }

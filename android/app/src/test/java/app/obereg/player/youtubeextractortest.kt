@@ -626,4 +626,64 @@ class YouTubeExtractorTest {
         assertTrue("движок молчит", TokenProbe.summarizeChallenge(null).contains("не ответил"))
         assertTrue("ошибка видна", TokenProbe.summarizeChallenge("\"{\\\"error\\\":\\\"нет ключа\\\"}\"").contains("нет ключа"))
     }
+
+    @Test
+    fun splitPollKeepsStages() {
+        val (result, stages) = TokenProbe.splitPoll("\"{\\\"error\\\":\\\"нет ответа\\\"}||контекст есть → запрос отправлен\"")
+        assertTrue("результат отделён", result.contains("нет ответа"))
+        assertTrue("этапы отделены: $stages", stages.contains("запрос отправлен"))
+        val (empty, none) = TokenProbe.splitPoll("\"||\"")
+        assertTrue(empty.isEmpty() && none.isEmpty())
+    }
+
+    @Test
+    fun challengeSummaryShowsStages() {
+        val summary = TokenProbe.summarizeChallenge("""{"error":"сервис не ответил за 7 секунд","stages":"контекст есть"}""")
+        assertTrue("этапы в сообщении: $summary", summary.contains("этапы:") && summary.contains("контекст есть"))
+    }
+
+    @Test
+    fun streamUrlTakesToken() {
+        // Токен ждёт отдельным параметром; если его нет — адрес не меняется.
+        assertEquals(
+            "https://x.example/videoplayback?itag=18&pot=T",
+            PlayerApi.appendPoToken("https://x.example/videoplayback?itag=18", "T"),
+        )
+        assertEquals(
+            "https://x.example/videoplayback?pot=T",
+            PlayerApi.appendPoToken("https://x.example/videoplayback", "T"),
+        )
+        assertEquals("https://x.example/videoplayback", PlayerApi.appendPoToken("https://x.example/videoplayback", null))
+        assertEquals("https://x.example/videoplayback", PlayerApi.appendPoToken("https://x.example/videoplayback", "  "))
+        assertEquals(
+            "https://x.example/videoplayback?pot=OLD",
+            PlayerApi.appendPoToken("https://x.example/videoplayback?pot=OLD", "NEW"),
+        )
+    }
+
+    @Test
+    fun requestBodyTakesToken() {
+        val body = """{"context":{"client":{"clientName":"WEB"}},"videoId":"x"}"""
+        val withToken = PlayerApi.withPoToken(body, "TOKEN")
+        assertTrue("токен добавлен блоком: $withToken", withToken.contains("serviceIntegrityDimensions") && withToken.contains("TOKEN"))
+        assertEquals("без токена тело не меняется", body, PlayerApi.withPoToken(body, null))
+        assertEquals("битое тело не ломаем", "{не json}", PlayerApi.withPoToken("{не json}", "TOKEN"))
+        val already = """{"serviceIntegrityDimensions":{"poToken":"OLD"}}"""
+        assertEquals("повторно не добавляем", already, PlayerApi.withPoToken(already, "NEW"))
+    }
+
+    @Test
+    fun tokenStoreHonoursExpiry() {
+        TokenStore.clear()
+        TokenStore.put("v1", PoToken("T1", expiresAtMs = 2_000))
+        assertTrue("годный токен отдаётся", TokenStore.get("v1", nowMs = 1_000) != null)
+        assertTrue("просроченный не отдаётся", TokenStore.get("v1", nowMs = 3_000) == null)
+        assertTrue("просроченный удалён", TokenStore.size() == 0)
+        TokenStore.put("v2", PoToken("T2", expiresAtMs = 50_000))
+        assertEquals("новый токен на месте", 1, TokenStore.size())
+        TokenStore.put("", PoToken("T3", expiresAtMs = 50_000))
+        assertEquals("пустой идентификатор не хранится", 1, TokenStore.size())
+        TokenStore.clear()
+        assertEquals("очистка работает", 0, TokenStore.size())
+    }
 }

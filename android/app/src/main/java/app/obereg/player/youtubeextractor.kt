@@ -190,9 +190,14 @@ object PlayerApi {
     }
 
     /** Описание запроса для профиля. */
-    fun spec(profile: ClientProfile, videoId: String, apiKey: String): RequestSpec = RequestSpec(
-        url = "$ENDPOINT?key=$apiKey&prettyPrint=false",
-        body = requestBody(profile, videoId),
+    fun spec(
+        profile: ClientProfile,
+        videoId: String,
+        apiKey: String,
+        poToken: String? = null,
+    ): RequestSpec = RequestSpec(
+        url = appendPoToken("$ENDPOINT?key=$apiKey&prettyPrint=false", poToken),
+        body = withPoToken(requestBody(profile, videoId), poToken),
         headers = mapOf(
             "User-Agent" to profile.userAgent,
             "Content-Type" to "application/json",
@@ -335,6 +340,35 @@ object PlayerApi {
             pairs["CONSENT"] = "CONSENT=YES+cb.20240101-00-p0.ru+FX+000"
         }
         return pairs.values.joinToString("; ")
+    }
+
+    /**
+     * Подставить токен подтверждения в адрес потока.
+     *
+     * Сервис ждёт его отдельным параметром `pot`; если токена нет — адрес не меняется.
+     */
+    fun appendPoToken(url: String, token: String?): String {
+        if (token.isNullOrBlank() || url.isBlank()) return url
+        if (url.contains("pot=")) return url
+        val separator = if (url.contains('?')) "&" else "?"
+        return "$url$separator" + "pot=" + token
+    }
+
+    /**
+     * Добавить токен в тело запроса за потоками.
+     *
+     * Часть клиентов ждёт его отдельным блоком `serviceIntegrityDimensions`.
+     * Если токена нет или тело не разбирается — возвращаем исходное тело без изменений.
+     */
+    fun withPoToken(bodyJson: String, token: String?): String {
+        if (token.isNullOrBlank()) return bodyJson
+        val root = runCatching { JSONObject(bodyJson) }.getOrNull() ?: return bodyJson
+        if (root.has("serviceIntegrityDimensions")) return bodyJson
+        root.put(
+            "serviceIntegrityDimensions",
+            JSONObject().put("poToken", token),
+        )
+        return root.toString()
     }
 
     /** Похоже ли на поток видеофайла (а не на страницу или картинку). */
@@ -518,6 +552,8 @@ class YouTubeExtractor(
     private val client: OkHttpClient = buildClient(proxyAddress),
     /** Cookie домена сервиса (например, из встроенного браузера, где проверка уже пройдена). */
     private val cookieProvider: (() -> String?)? = null,
+    /** Токен подтверждения клиента, если движок уже успел его добыть (шаг P3). */
+    private val poTokenProvider: (() -> String?)? = null,
 ) {
 
     /** Итог попыток: пригодные варианты по порядку предпочтения и причины отказов. */
@@ -622,7 +658,12 @@ class YouTubeExtractor(
 
     /** Одна попытка конкретным профилем клиента. */
     private fun attempt(profile: ClientProfile, videoId: String, apiKey: String): ExtractResult {
-        val spec = PlayerApi.spec(profile, videoId, apiKey)
+        val token = poTokenProvider?.let { provider -> runCatching(provider).getOrNull() }
+            ?.takeIf { it.isNotBlank() }
+        if (token != null) {
+            DiagLog.add("токен подтверждения: есть (${token.length} символов)")
+        }
+        val spec = PlayerApi.spec(profile, videoId, apiKey, token)
         val raw = when (val fetched = post(spec)) {
             is Fetch.Failed -> return ExtractResult.Failure(fetched.reason)
             is Fetch.Ok -> fetched.text
