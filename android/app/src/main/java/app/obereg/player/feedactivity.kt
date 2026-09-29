@@ -53,15 +53,33 @@ class FeedActivity : AppCompatActivity() {
         }
         statusView.text = "загружаю: $url"
         Thread {
-            val html = fetch(url)
+            var html = fetch(url)
+            var data = html?.let(PlayerApi::extractInitialData)
+            if (data == null) {
+                // Второй заход: обычная (не мобильная) страница — иногда отдаёт данные,
+                // когда мобильная вернула страницу согласия или пустую оболочку.
+                val altUrl = if (mode == MODE_SUBSCRIPTIONS) {
+                    "https://www.youtube.com/feed/subscriptions"
+                } else {
+                    "https://www.youtube.com/?hl=ru"
+                }
+                DiagLog.add("лента: второй заход $altUrl")
+                val alt = fetch(altUrl)
+                val altData = alt?.let(PlayerApi::extractInitialData)
+                if (altData != null) {
+                    html = alt
+                    data = altData
+                }
+            }
             runOnUiThread {
                 if (html == null) {
                     statusView.text = "не удалось получить страницу — проверьте маршрут (Профиль → туннель)"
                     return@runOnUiThread
                 }
-                val data = PlayerApi.extractInitialData(html)
                 if (data == null) {
-                    statusView.text = "на странице нет данных ленты (${html.length} символов)"
+                    val digest = PlayerApi.pageDigest(html)
+                    DiagLog.add("лента: нет данных — $digest")
+                    statusView.text = "нет данных ленты — $digest"
                     return@runOnUiThread
                 }
                 val coreJson = CoreHolder.analyzeFeed(

@@ -368,8 +368,10 @@ object PlayerApi {
     /**
      * Достать данные раздела (ленты) из страницы: сервис кладёт их в `ytInitialData`.
      *
-     * Лента о том же, что и ответ плеера, только переменная другая — поэтому ищем
-     * её тем же устойчивым способом: с учётом вложенности и скобок внутри строк.
+     * Устойчиво к трём разным видам встраивания, которые встречаются на живых страницах:
+     * * `var ytInitialData = {...}` — обычный объект;
+     * * строка с экранированием (`\"` вместо `"`) — такие данные распаковываем;
+     * * данные в другом блоке (`ytInitialPlayerResponse` не подходит) — пропускаем.
      */
     fun extractInitialData(html: String): String? {
         val marker = "ytInitialData"
@@ -378,17 +380,52 @@ object PlayerApi {
             val brace = html.indexOf('{', from)
             if (brace < 0) return null
             val candidate = balancedObject(html, brace)
-            if (candidate != null &&
-                (candidate.contains("\"videoRenderer\"") ||
-                    candidate.contains("\"richItemRenderer\"") ||
-                    candidate.contains("\"gridVideoRenderer\"") ||
-                    candidate.contains("\"contents\""))
-            ) {
-                return candidate
+            if (candidate != null && looksLikeFeed(candidate)) {
+                return unescapeIfNeeded(candidate)
             }
             from = html.indexOf(marker, from + marker.length)
         }
         return null
+    }
+
+    /** Похож ли блок на данные ленты: ищем ключи без требования к экранированию. */
+    internal fun looksLikeFeed(candidate: String): Boolean =
+        candidate.contains("videoRenderer") ||
+            candidate.contains("richItemRenderer") ||
+            candidate.contains("gridVideoRenderer") ||
+            candidate.contains("compactVideoRenderer") ||
+            candidate.contains("contents")
+
+    /** Если данные вложены строкой с экранированием — снимаем экранирование. */
+    internal fun unescapeIfNeeded(candidate: String): String =
+        if (candidate.contains("\\\"")) {
+            candidate.replace("\\\"", "\"").replace("\\\\", "\\")
+        } else {
+            candidate
+        }
+
+    /**
+     * Что за страница пришла — по видимым признакам. Нужно, чтобы отчёт говорил прямо:
+     * согласие, проверка «не бот», обычная страница без данных и т. п.
+     */
+    fun pageDigest(html: String): String {
+        val marks = mutableListOf<String>()
+        if (html.contains("consent", ignoreCase = true) ||
+            html.contains("Прежде чем продолжить", ignoreCase = true) ||
+            html.contains("Before you continue", ignoreCase = true)
+        ) {
+            marks += "страница согласия"
+        }
+        if (html.contains("unusual traffic", ignoreCase = true) ||
+            html.contains("подтвердить, что вы не робот", ignoreCase = true) ||
+            html.contains("not a bot", ignoreCase = true)
+        ) {
+            marks += "проверка «не бот»"
+        }
+        if (html.contains("ytInitialData")) marks += "ytInitialData есть"
+        if (html.contains("videoRenderer")) marks += "videoRenderer есть"
+        if (marks.isEmpty()) marks += "знакомых признаков нет"
+        return "${html.length} символов, " + marks.joinToString(", ")
     }
 
     /** Ключ программного интерфейса, который сервис сам сообщает на странице. */

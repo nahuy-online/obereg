@@ -503,4 +503,37 @@ class YouTubeExtractorTest {
         assertTrue("данные ленты должны найтись", data != null && data.contains("videoRenderer"))
         assertNull("страница без данных", PlayerApi.extractInitialData("<html>пусто</html>"))
     }
+
+    @Test
+    fun feedExtractionHandlesEscapedData() {
+        // Живые страницы иногда вкладывают данные строкой с экранированием.
+        val escaped = "<script>var ytInitialData = {\"contents\":\"{\\\"richItemRenderer\\\":{\\\"videoRenderer\\\":{\\\"videoId\\\":\\\"aaaaaaaaaaa\\\"}}}\"};</script>"
+        val data = PlayerApi.extractInitialData(escaped)
+        assertTrue("данные с экранированием должны распознаваться", data != null)
+        assertTrue("экранирование снимается", data!!.contains("\"videoRenderer\""))
+    }
+
+    @Test
+    fun feedExtractionSkipsUnrelatedBlocks() {
+        // Первое вхождение имени переменной может быть в служебном коде — берём нужное.
+        val html = "<script>ytInitialData = null; some.ytInitialData = {a:1};</script>" +
+            "<script>var ytInitialData = {\"contents\":{\"richItemRenderer\":{\"videoRenderer\":{\"videoId\":\"aaaaaaaaaaa\"}}}};</script>"
+        val data = PlayerApi.extractInitialData(html)
+        assertTrue("нужный блок найден", data != null && data.contains("aaaaaaaaaaa"))
+        assertNull("страница без данных", PlayerApi.extractInitialData("<html>пусто</html>"))
+    }
+
+    @Test
+    fun pageDigestNamesWhatCame() {
+        val consent = PlayerApi.pageDigest("Прежде чем продолжить:<html>consent</html>")
+        assertTrue("согласие опознаётся: $consent", consent.contains("согласия"))
+        val bot = PlayerApi.pageDigest("<html>unusual traffic — подтвердите, что вы не робот</html>")
+        assertTrue("проверка «не бот» опознаётся: $bot", bot.contains("не бот"))
+        val plain = PlayerApi.pageDigest("<html>обычная страница без данных</html>")
+        assertTrue("пустая страница опознаётся: $plain", plain.contains("знакомых признаков нет"))
+        val withData = PlayerApi.pageDigest("<html>ytInitialData videoRenderer</html>")
+        assertTrue("признаки данных: $withData", withData.contains("ytInitialData есть"))
+    }
+
+
 }
