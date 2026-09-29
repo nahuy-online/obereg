@@ -178,6 +178,8 @@ class ProfileActivity : AppCompatActivity() {
                 "время: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
                     .format(java.util.Date()),
             )
+            // Идентификация сборки: без неё невозможно понять, какая версия отвечает в отчёте.
+            appendLine("сборка: " + buildLabel())
             appendLine("туннель: ${if (tunnelCheck.isChecked) "включён" else "выключен"}")
             if (core != null) {
                 appendLine("ядро: ${core.state} / ${core.mode} / прокси ${core.listenAddr ?: "нет"}")
@@ -191,6 +193,20 @@ class ProfileActivity : AppCompatActivity() {
         }
         DiagLog.add("отчёт скопирован (${report.length} символов)")
         render("отчёт скопирован (${report.length} символов) — вставьте его в чат")
+    }
+
+    /** Сборка: версия, время сборки и время установки — по ним видно, какая версия работает. */
+    private fun buildLabel(): String {
+        val version = runCatching {
+            val info = packageManager.getPackageInfo(packageName, 0)
+            "${info.versionName} (${info.lastUpdateTime})"
+        }.getOrNull() ?: "неизвестно"
+        return "$version, установлена: " + java.text.SimpleDateFormat(
+            "dd.MM HH:mm",
+            java.util.Locale.ROOT,
+        ).format(java.util.Date(runCatching {
+            packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+        }.getOrDefault(0L)))
     }
 
     /**
