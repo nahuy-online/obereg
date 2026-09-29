@@ -82,7 +82,9 @@ class YouTubeActivity : AppCompatActivity() {
         searchInput = findViewById(R.id.searchInput)
         statusView = findViewById(R.id.youtubeStatus)
         tunnelCheck = findViewById(R.id.checkYtTunnel)
-        tunnelCheck.setOnCheckedChangeListener { _, _ ->
+        tunnelCheck.isChecked = AppSettings.screenViaTunnel(this)
+        tunnelCheck.setOnCheckedChangeListener { _, checked ->
+            AppSettings.setScreenViaTunnel(this, checked)
             routeNote = applyRoute()
             render("маршрут экрана обновлён")
         }

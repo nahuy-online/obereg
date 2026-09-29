@@ -453,5 +453,27 @@ class YouTubeExtractorTest {
         assertEquals(2, LibraryCodec.removeItem(items, "a", "audio").size)
     }
 
+    @Test
+    fun settingsClampPromoPosition() {
+        // Позиция в ленте: принимаем текст, держим в разумных границах, по умолчанию третья.
+        assertEquals(3, SettingsCodec.clampPosition(""))
+        assertEquals(3, SettingsCodec.clampPosition(null))
+        assertEquals(3, SettingsCodec.clampPosition("нет числа"))
+        assertEquals(1, SettingsCodec.clampPosition("0"))
+        assertEquals(1, SettingsCodec.clampPosition("-5"))
+        assertEquals(7, SettingsCodec.clampPosition("7"))
+        assertEquals(50, SettingsCodec.clampPosition("999"))
+    }
+
+    @Test
+    fun settingsCheckPromoVideoId() {
+        assertTrue(SettingsCodec.looksLikeVideoId("dQw4w9WgXcQ"))
+        assertTrue(SettingsCodec.looksLikeVideoId("aqz-KE-bpKQ"))
+        assertFalse("короткий — не идентификатор", SettingsCodec.looksLikeVideoId("коротко"))
+        assertFalse("лишние символы", SettingsCodec.looksLikeVideoId("dQw4w9WgXcQ!"))
+        assertFalse(SettingsCodec.looksLikeVideoId(""))
+        assertFalse(SettingsCodec.looksLikeVideoId(null))
+    }
+
 
 }

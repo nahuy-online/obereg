@@ -56,6 +56,10 @@ class MainActivity : AppCompatActivity() {
         log("экран открыт; версия ядра: ${CoreHolder.coreVersion() ?: "не загружено"}")
         CoreHolder.coreAvailabilityError()?.let { log("ОШИБКА ядра: $it") }
         log("журнал на устройстве: ${CoreHolder.journalPath(this)}")
+        if (AppSettings.tunnelDesired(this)) {
+            log("настройка: туннель включён — поднимаю")
+            TunnelService.start(this)
+        }
 
         findViewById<Button>(R.id.btnOpenCatalog).setOnClickListener {
             log("нажато: каталог видео")
@@ -73,6 +77,12 @@ class MainActivity : AppCompatActivity() {
             log("нажато: библиотека (история и закладки)")
             safe("открытие библиотеки") {
                 startActivity(android.content.Intent(this, LibraryActivity::class.java))
+            }
+        }
+        findViewById<Button>(R.id.btnOpenProfile).setOnClickListener {
+            log("нажато: профиль и настройки")
+            safe("открытие профиля") {
+                startActivity(android.content.Intent(this, ProfileActivity::class.java))
             }
         }
         findViewById<Button>(R.id.btnOpenPlayer).setOnClickListener {

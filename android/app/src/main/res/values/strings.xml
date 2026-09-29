@@ -49,6 +49,16 @@
     <string name="library_status_idle">библиотека: всё хранится только на устройстве</string>
     <string name="youtube_bookmark">★ В закладки / из закладок</string>
     <string name="action_open_library">Библиотека (история и закладки)</string>
+    <string name="action_open_profile">Профиль и настройки</string>
+    <string name="profile_title">Профиль и настройки</string>
+    <string name="profile_tunnel">Наш туннель: включён</string>
+    <string name="profile_screen_route">Экран сервиса — через наш туннель</string>
+    <string name="profile_promo_title">Наша рекомендация в ленте</string>
+    <string name="profile_promo_id_hint">идентификатор ролика (11 символов, можно пусто)</string>
+    <string name="profile_promo_name_hint">название для показа (необязательно)</string>
+    <string name="profile_promo_position_hint">позиция в ленте (по умолчанию 3)</string>
+    <string name="profile_save">Сохранить</string>
+    <string name="profile_status_idle">настройки: изменения сохраняются сразу</string>
     <string name="youtube_via_our_tunnel">Через наш туннель (для этого экрана)</string>
     <string name="player_preset_1">Локальное видео</string>
     <string name="player_preset_2">Тест 5 с</string>

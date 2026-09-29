@@ -39,6 +39,12 @@
             android:text="@string/action_open_library" />
 
         <Button
+            android:id="@+id/btnOpenProfile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/action_open_profile" />
+
+        <Button
             android:id="@+id/btnOpenPlayer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

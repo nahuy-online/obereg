@@ -1,0 +1,100 @@
+package app.obereg.player
+
+import android.os.Bundle
+import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+
+/**
+ * Профиль и настройки.
+ *
+ * Здесь живёт выключатель нашего туннеля (как и просил пользователь), выбор маршрута
+ * для экрана сервиса и наша рекомендация для ленты: какой ролик и на какую позицию
+ * подставлять.
+ */
+class ProfileActivity : AppCompatActivity() {
+
+    private lateinit var tunnelCheck: CheckBox
+    private lateinit var screenCheck: CheckBox
+    private lateinit var promoId: EditText
+    private lateinit var promoTitle: EditText
+    private lateinit var promoPosition: EditText
+    private lateinit var statusView: TextView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_profile)
+
+        tunnelCheck = findViewById(R.id.checkTunnelSetting)
+        screenCheck = findViewById(R.id.checkScreenTunnel)
+        promoId = findViewById(R.id.promoIdInput)
+        promoTitle = findViewById(R.id.promoTitleInput)
+        promoPosition = findViewById(R.id.promoPositionInput)
+        statusView = findViewById(R.id.profileStatus)
+
+        tunnelCheck.isChecked = AppSettings.tunnelDesired(this)
+        screenCheck.isChecked = AppSettings.screenViaTunnel(this)
+        promoId.setText(AppSettings.promoVideoId(this))
+        promoTitle.setText(AppSettings.promoTitle(this))
+        promoPosition.setText(AppSettings.promoPosition(this).toString())
+
+        tunnelCheck.setOnCheckedChangeListener { _, checked ->
+            AppSettings.setTunnelDesired(this, checked)
+            if (checked) {
+                TunnelService.start(this)
+                render("туннель: включаю (поднимите его готовность — статус ниже)")
+            } else {
+                TunnelService.stop(this)
+                render("туннель: выключаю")
+            }
+        }
+
+        screenCheck.setOnCheckedChangeListener { _, checked ->
+            AppSettings.setScreenViaTunnel(this, checked)
+            render(
+                if (checked) {
+                    "экран сервиса пойдёт через наш туннель"
+                } else {
+                    "экран сервиса пойдёт напрямую (системный VPN, если включён)"
+                },
+            )
+        }
+
+        findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
+        findViewById<Button>(R.id.btnProfileBack).setOnClickListener { finish() }
+
+        render("настройки: изменения сохраняются сразу")
+    }
+
+    private fun savePromo() {
+        val id = promoId.text.toString().trim()
+        val title = promoTitle.text.toString().trim()
+        val position = SettingsCodec.clampPosition(promoPosition.text.toString())
+        promoPosition.setText(position.toString())
+        if (id.isNotEmpty() && !SettingsCodec.looksLikeVideoId(id)) {
+            render("наш ролик: идентификатор должен быть 11 символов (как в ссылке видео); пока не сохранил")
+            return
+        }
+        AppSettings.setPromo(this, id, title, position)
+        render(
+            if (id.isEmpty()) {
+                "наша рекомендация выключена: ролик не подставляется"
+            } else {
+                "наша рекомендация: $id на позицию $position"
+            },
+        )
+    }
+
+    private fun render(message: String) {
+        val core = runCatching { CoreHolder.status() }.getOrNull()
+        statusView.text = buildString {
+            appendLine(message)
+            if (core != null) {
+                appendLine("ядро: ${core.state} / ${core.mode} / прокси ${core.listenAddr ?: "нет"}")
+            }
+            append("туннель: ${if (tunnelCheck.isChecked) "включён в настройках" else "выключен в настройках"}")
+        }
+    }
+}
