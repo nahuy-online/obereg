@@ -4,6 +4,15 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="12dp">
+    <ScrollView
+        android:id="@+id/profileScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
     <TextView
         android:layout_width="match_parent"
@@ -11,6 +20,19 @@
         android:text="@string/profile_title"
         android:textSize="18sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/profileStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="#1A808080"
+        android:fontFamily="monospace"
+        android:minHeight="52dp"
+        android:padding="8dp"
+        android:textIsSelectable="true"
+        android:textSize="12sp"
+        android:text="@string/profile_status_idle" />
 
     <CheckBox
         android:id="@+id/checkTunnelSetting"
@@ -153,17 +175,7 @@
         android:textSize="12sp"
         android:text="@string/profile_report" />
 
-    <TextView
-        android:id="@+id/profileStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:background="#1A808080"
-        android:fontFamily="monospace"
-        android:minHeight="52dp"
-        android:padding="8dp"
-        android:textIsSelectable="true"
-        android:textSize="12sp"
-        android:text="@string/profile_status_idle" />
 
+        </LinearLayout>
+    </ScrollView>
 </LinearLayout>

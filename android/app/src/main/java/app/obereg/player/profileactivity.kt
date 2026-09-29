@@ -317,7 +317,7 @@ class ProfileActivity : AppCompatActivity() {
     private fun runTokenExchange() {
         render("обмен на токен целостности:")
         DiagLog.add("токены: обмен на токен целостности")
-        tokenWebView.evaluateJavascript("(window.__oberegSnapshot || ')") { raw ->
+        tokenWebView.evaluateJavascript("(window.__oberegSnapshot || '')") { raw ->
             val snapshot = PlayerApi.decodeJsString(raw)
             if (snapshot.isNullOrEmpty() || snapshot.length < 50) {
                 DiagLog.add("токены: снимка нет - сначала шаг 7")
@@ -560,5 +560,6 @@ class ProfileActivity : AppCompatActivity() {
             }
             append("туннель: ${if (tunnelCheck.isChecked) "включён в настройках" else "выключен в настройках"}")
         }
+        findViewById<android.widget.ScrollView>(R.id.profileScroll)?.fullScroll(android.view.View.FOCUS_UP)
     }
 }
