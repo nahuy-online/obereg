@@ -124,7 +124,7 @@ object TokenProbe {
               }
             }, 8000);
             mark('запрос отправлен');
-            fetch('/youtubei/v1/att/get?key=*** + key + '&prettyPrint=false', {
+            fetch('/youtubei/v1/att/get?key=' + key + '&prettyPrint=false', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({context: context})

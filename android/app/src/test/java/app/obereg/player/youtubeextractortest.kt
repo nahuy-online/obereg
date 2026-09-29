@@ -706,4 +706,14 @@ class YouTubeExtractorTest {
         assertTrue("сохранённая проверка видна: $summary", summary.contains("сохранённая") && summary.contains("42"))
         assertTrue("размер назван", summary.contains("36242"))
     }
+
+    @Test
+    fun challengeScriptIsSyntacticallySane() {
+        // Регрессия: в адресе запроса оказались звёздочки-заглушки — скрипт не выполнялся вовсе.
+        val script = TokenProbe.challengeScript()
+        assertFalse("заглушек быть не должно", script.contains("***"))
+        assertTrue("запрос проверки на месте", script.contains("att/get"))
+        assertTrue("результат складывается в страницу", script.contains("__oberegChallenge"))
+        assertFalse("многоточий быть не должно", script.contains("…"))
+    }
 }
