@@ -92,6 +92,40 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{}", obereg_core::extract::outcome_to_json(&outcome));
             Ok(())
         }
+        "feed-json" => {
+            // Разбор ленты и наша рекомендация: читаем сохранённый ответ раздела,
+            // собираем ролики в порядке ленты и (по желанию) вставляем свой на позицию.
+            let path = flag(args, "--file").ok_or_else(|| "--file is required".to_string())?;
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|error| format!("не читается файл {path}: {error}"))?;
+            let items = obereg_core::feed::parse_feed(&raw).map_err(to_string)?;
+            let position: usize =
+                flag(args, "--position").and_then(|v| v.parse().ok()).unwrap_or(3);
+            let final_items = match flag(args, "--promo") {
+                Some(video_id) => {
+                    let title = flag(args, "--promo-title");
+                    let promo = obereg_core::feed::promo_from(&video_id, title.as_deref());
+                    obereg_core::feed::inject(&items, &promo, position)
+                }
+                None => items,
+            };
+            println!("роликов в ленте: {}", final_items.len());
+            for (index, item) in final_items.iter().enumerate() {
+                println!(
+                    "{:>2}. {}{} [{}]{}",
+                    index + 1,
+                    if item.injected { "★ " } else { "" },
+                    if item.title.is_empty() { "(без названия)" } else { &item.title },
+                    item.video_id,
+                    if item.channel.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" — {}", item.channel)
+                    }
+                );
+            }
+            Ok(())
+        }
         "journal" => {
             let session = session_from_args(args)?;
             let limit: usize = flag(args, "--limit")

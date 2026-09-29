@@ -102,6 +102,13 @@
       "description": "ПК-оболочка (Tauri-подобная) с themeable UI вокруг того же API ядра; запланирована."
     },
     {
+      "name": "feed",
+      "status": "ready",
+      "crate": "obereg-core",
+      "interfaces": ["parse_feed", "inject", "FeedItem", "promo_from"],
+      "description": "Разбор ленты сервиса и наши рекомендации: список роликов в порядке ленты плюс вставка своего ролика на заданную позицию."
+    },
+    {
       "name": "extract",
       "status": "ready",
       "crate": "obereg-core",
