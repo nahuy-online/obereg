@@ -673,25 +673,52 @@ class YouTubeExtractor(
     }
 
     /** Забрать страницу или текст по адресу. */
+    /**
+     * Отправка запроса с повтором при перебоях сети.
+     *
+     * DNS провайдера бывает неустойчив («Unable to resolve host») - повтор через паузу
+     * обычно проходит. Пять попыток с нарастающей паузой.
+     */
+    private fun executeWithRetry(request: Request): Fetch {
+        var last: Fetch = Fetch.Failed("сеть недоступна")
+        var lastError: IOException? = null
+        for (attempt in 1..5) {
+            lastError = null
+            last = try {
+                client.newCall(request).execute().use { response ->
+                    val text = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        Fetch.Failed("HTTP ${response.code} - ${excerpt(text)}")
+                    } else {
+                        Fetch.Ok(text)
+                    }
+                }
+            } catch (error: IOException) {
+                lastError = error
+                Fetch.Failed("сеть недоступна: ${error.message}")
+            }
+            val dns = lastError is java.net.UnknownHostException ||
+                (lastError?.message?.contains("resolve", ignoreCase = true) == true)
+            if (!dns) return last
+            if (attempt < 5) {
+                DiagLog.add("сеть: перебой DNS (попытка $attempt) - повторяю")
+                try {
+                    Thread.sleep(700L * attempt)
+                } catch (ignored: InterruptedException) {
+                    return last
+                }
+            }
+        }
+        return last
+    }
+
     private fun fetch(url: String, userAgent: String): Fetch {
         val builder = Request.Builder()
             .url(url)
             .header("User-Agent", userAgent)
             .header("Accept-Language", "ru-RU,ru;q=0.9")
         cookieHeader()?.let { builder.header("Cookie", it) }
-        val request = builder.build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    Fetch.Failed("HTTP ${response.code} — ${excerpt(text)}")
-                } else {
-                    Fetch.Ok(text)
-                }
-            }
-        } catch (error: IOException) {
-            Fetch.Failed("сеть недоступна: ${error.message}")
-        }
+        return executeWithRetry(builder.build())
     }
 
     /** Отправить запрос к программному интерфейсу. */
@@ -701,19 +728,7 @@ class YouTubeExtractor(
             .post(spec.body.toRequestBody("application/json".toMediaType()))
             .apply { spec.headers.forEach { (name, value) -> header(name, value) } }
         cookieHeader()?.let { builder.header("Cookie", it) }
-        val request = builder.build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    Fetch.Failed("HTTP ${response.code} — ${excerpt(text)}")
-                } else {
-                    Fetch.Ok(text)
-                }
-            }
-        } catch (error: IOException) {
-            Fetch.Failed("сеть недоступна: ${error.message}")
-        }
+        return executeWithRetry(builder.build())
     }
 
     /** Заголовок Cookie, если источник его дал. Ошибку источника не пробрасываем: без cookie просто пробуем снова. */
