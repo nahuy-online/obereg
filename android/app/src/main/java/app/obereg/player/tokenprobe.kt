@@ -391,7 +391,9 @@ object TokenProbe {
           function collect(obj, depth, found) {
             if (!obj || depth > 6 || found.length >= 6) { return; }
             if (typeof obj === 'string') {
-              if (obj.indexOf('http') === 0 && found.indexOf(obj) < 0) { found.push(obj); }
+              var isLink = obj.indexOf('http') === 0 || obj.indexOf('/') === 0;
+              var looksScript = obj.indexOf('.js') > 0 || obj.indexOf('interpreter') >= 0;
+              if ((isLink || looksScript) && obj.length <= 300 && found.indexOf(obj) < 0) { found.push(obj); }
               return;
             }
             if (typeof obj === 'object') {
@@ -407,9 +409,25 @@ object TokenProbe {
             var data = root.botguardData || {};
             var found = [];
             collect(data, 0, found);
+            // Структура обёртки: имена полей и превью значений — по ним видно, где спрятан адрес.
+            var wrapperKeys = [];
+            var wrapperPreview = [];
+            try {
+              var wrapper = data.interpreterSafeUrl;
+              if (wrapper && typeof wrapper === 'object') {
+                wrapperKeys = Object.keys(wrapper).slice(0, 10);
+                for (var wi = 0; wi < wrapperKeys.length; wi++) {
+                  var wv = wrapper[wrapperKeys[wi]];
+                  var wp = (typeof wv === 'string') ? wv.slice(0, 120) : (typeof wv);
+                  wrapperPreview.push(wrapperKeys[wi] + ' = ' + wp);
+                }
+              }
+            } catch (we) { wrapperPreview.push('ошибка чтения обёртки'); }
             return JSON.stringify({
               botguardKeys: Object.keys(data).slice(0, 12),
               urlType: typeof data.interpreterSafeUrl,
+              wrapperKeys: wrapperKeys,
+              wrapperPreview: wrapperPreview.slice(0, 6),
               urls: found,
               hasInterpreterText: (typeof window.__oberegInterpreterText === 'string')
             });
@@ -427,12 +445,52 @@ object TokenProbe {
         if (root.has("error")) return "поиск интерпретатора: ${root.optString("error").take(140)}"
         val urls = root.optJSONArray("urls")?.let(::names).orEmpty()
         val keys = root.optJSONArray("botguardKeys")?.let(::names).orEmpty()
+        val preview = root.optJSONArray("wrapperPreview")?.let(::names).orEmpty()
+        val wrapperKeys = root.optJSONArray("wrapperKeys")?.let(::names).orEmpty()
         return buildString {
             append("поиск интерпретатора: поля данных — ${keys.take(6).joinToString(", ").ifEmpty { "пусто" }}")
-            append(", тип адреса: ${root.optString("urlType")}")
-            append(", адрес: ")
+            if (wrapperKeys.isNotEmpty()) append(", обёртка: ${wrapperKeys.take(5).joinToString(", ")}")
+            if (preview.isNotEmpty()) append(", превью: ${preview.first().take(120)}")
             append(", ссылок: ${urls.size}")
             if (urls.isNotEmpty()) append(", первая: ${urls.first().take(90)}…")
+        }
+    }
+
+    /** Снимок имён на странице и сравнение: что появилось после вложения интерпретатора. */
+    fun globalsSnapshotScript(): String = """
+        (function(){
+          try {
+            if (!window.__oberegKeysBefore) {
+              window.__oberegKeysBefore = Object.keys(window).join(',');
+              return 'saved';
+            }
+            var before = window.__oberegKeysBefore.split(',');
+            var now = Object.keys(window);
+            var added = [];
+            for (var i = 0; i < now.length; i++) {
+              var key = now[i];
+              if (before.indexOf(key) >= 0) { continue; }
+              if (key.indexOf('__obereg') === 0) { continue; }
+              added.push(key + ':' + (typeof window[key]));
+            }
+            return JSON.stringify({ added: added.slice(0, 25) });
+          } catch (e) {
+            return JSON.stringify({error: String(e)});
+          }
+        })()
+    """.trimIndent()
+
+    /** Сводка сравнения имён. */
+    fun summarizeGlobalsDiff(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "сравнение имён: движок не ответил"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "сравнение имён не прочитано: ${jsonText.take(120)}"
+        if (root.has("error")) return "сравнение имён: ${root.optString("error").take(120)}"
+        val added = root.optJSONArray("added")?.let(::names).orEmpty()
+        return if (added.isEmpty()) {
+            "сравнение имён: новых сущностей нет"
+        } else {
+            "после интерпретатора появились: ${added.take(8).joinToString(", ")}"
         }
     }
 

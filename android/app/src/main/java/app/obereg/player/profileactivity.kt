@@ -151,6 +151,8 @@ class ProfileActivity : AppCompatActivity() {
                         }
                         val head = text.replace("\n", " ").take(160)
                         DiagLog.add("токены: интерпретатор получен (${text.length} символов): $head")
+                        // Снимок имён до вложения — потом сравним, что принесла машина проверки.
+                        tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { _ -> }
                         val escaped = org.json.JSONObject.quote(text)
                         tokenWebView.evaluateJavascript(
                             "window.__oberegInterpreterText = $escaped; 'ok'",
@@ -161,7 +163,11 @@ class ProfileActivity : AppCompatActivity() {
                                         PlayerApi.decodeJsString(checkRaw),
                                     )
                                     DiagLog.add("токены: интерпретатор вложен, $check")
-                                    render("интерпретатор: ${text.length} символов; $check")
+                                        tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { diffRaw ->
+                                            val diff = TokenProbe.summarizeGlobalsDiff(PlayerApi.decodeJsString(diffRaw))
+                                            DiagLog.add("токены: $diff")
+                                            render("интерпретатор: ${text.length} символов; $check; $diff")
+                                        }
                                 }
                             }
                         }

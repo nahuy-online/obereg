@@ -736,4 +736,14 @@ class YouTubeExtractorTest {
         assertTrue("ошибка видна: $err", err.contains("нет конфигурации"))
         assertTrue("движок молчит", TokenProbe.summarizeProgramCheck(null).contains("не ответил"))
     }
+
+    @Test
+    fun globalsDiffSummary() {
+        val ok = """{"added":["botguard:object","vmok:function"]}"""
+        val summary = TokenProbe.summarizeGlobalsDiff(ok)
+        assertTrue("новые сущности названы: $summary", summary.contains("botguard:object"))
+        val none = TokenProbe.summarizeGlobalsDiff("""{"added":[]}""")
+        assertTrue("пустое сравнение видно", none.contains("новых сущностей нет"))
+        assertTrue("движок молчит", TokenProbe.summarizeGlobalsDiff(null).contains("не ответил"))
+    }
 }
