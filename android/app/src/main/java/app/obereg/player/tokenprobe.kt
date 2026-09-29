@@ -268,7 +268,7 @@ object TokenProbe {
         }
 
         val length = root.optInt("length")
-        val parseError = root.optString("parseError")
+        val parseError = root.optString("parseError").takeIf { it.isNotEmpty() && it != "null" }
         val challengeKeys = root.optJSONArray("challengeKeys")?.let(::names).orEmpty()
         val botguardKeys = root.optJSONArray("botguardKeys")?.let(::names).orEmpty()
         val programType = root.optString("programType")
@@ -278,7 +278,7 @@ object TokenProbe {
 
         return buildString {
             append("разбор проверки: HTTP 200, ответ $length символов")
-            if (parseError.isNotEmpty()) {
+            if (parseError != null) {
                 append(", ОШИБКА разбора JSON: ${parseError.take(80)}")
             }
             append(", корень: ${challengeKeys.size + botguardKeys.size + 1} полей")
@@ -291,6 +291,53 @@ object TokenProbe {
                 append(", после загрузки: ${loaded.take(4).joinToString(", ").ifEmpty { "ничего" }}")
             }
             if (root.has("loadError")) append(", ошибка загрузки: ${root.optString("loadError").take(80)}")
+        }
+    }
+
+    /** Достать программу сервиса из сохранённой проверки (её вкладывает приложение). */
+    fun programExtractScript(): String = """
+        (function(){
+          try {
+            var text = window.__oberegLastChallenge;
+            if (!text) { return ''; }
+            var root = JSON.parse(text);
+            var botguard = root.botguardData || {};
+            return (typeof botguard.program === 'string') ? botguard.program : '';
+          } catch (e) {
+            return '';
+          }
+        })()
+    """.trimIndent()
+
+    /** Что появилось после вложения программы. */
+    fun programCheckScript(): String = """
+        (function(){
+          try {
+            var out = {
+              botguardType: (typeof window.botguard),
+              botguardKeys: (typeof window.botguard !== 'undefined') ? Object.keys(window.botguard).slice(0, 12) : null,
+              jslType: (typeof window.jsl)
+            };
+            return JSON.stringify(out);
+          } catch (e) {
+            return JSON.stringify({error: String(e)});
+          }
+        })()
+    """.trimIndent()
+
+    /** Сводка шага 4. */
+    fun summarizeProgramCheck(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "вложение программы: движок не ответил"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "вложение программы не прочитано: ${jsonText.take(120)}"
+        if (root.has("error")) return "вложение программы: ошибка ${root.optString("error").take(120)}"
+        val type = root.optString("botguardType")
+        val keys = root.optJSONArray("botguardKeys")?.let(::names).orEmpty()
+        val jsl = root.optString("jslType")
+        return buildString {
+            append("вложение программы: botguard=$type")
+            if (keys.isNotEmpty()) append(" (ключи: ${keys.take(6).joinToString(", ")})")
+            append(", jsl=$jsl")
         }
     }
 

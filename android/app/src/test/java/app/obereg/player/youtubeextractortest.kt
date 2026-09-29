@@ -725,4 +725,15 @@ class YouTubeExtractorTest {
         val emptySummary = TokenProbe.summarize("\"{\\\"url\\\":\\\"about:blank\\\",\\\"hasYtcfg\\\":false,\\\"scriptCount\\\":0}\"")
         assertTrue("пустая страница распознаётся: $emptySummary", emptySummary.contains("скриптов на странице: 0"))
     }
+
+    @Test
+    fun programCheckSummary() {
+        val ok = """{"botguardType":"object","botguardKeys":["create","close"],"jslType":"undefined"}"""
+        val summary = TokenProbe.summarizeProgramCheck(ok)
+        assertTrue("тип и ключи: $summary", summary.contains("botguard=object") && summary.contains("create"))
+        assertTrue("jsl назван", summary.contains("jsl=undefined"))
+        val err = TokenProbe.summarizeProgramCheck("""{"error":"нет конфигурации страницы"}""")
+        assertTrue("ошибка видна: $err", err.contains("нет конфигурации"))
+        assertTrue("движок молчит", TokenProbe.summarizeProgramCheck(null).contains("не ответил"))
+    }
 }

@@ -113,6 +113,27 @@ class ProfileActivity : AppCompatActivity() {
             tokenWebView.evaluateJavascript(TokenProbe.challengeDetailScript()) { _ -> }
             pollChallengeDetail(1)
         }
+        findViewById<Button>(R.id.btnProgramLoad).setOnClickListener {
+            // Программу вкладывает приложение: страница сервиса запрещает eval (Trusted Types).
+            render("вкладываю программу проверки в движок…")
+            DiagLog.add("токены: вложение программы")
+            tokenWebView.evaluateJavascript(TokenProbe.programExtractScript()) { raw ->
+                val program = PlayerApi.decodeJsString(raw)
+                if (program.isNullOrEmpty()) {
+                    DiagLog.add("токены: программы нет — сначала шаг 3")
+                    render("программы нет в сохранённой проверке — сначала шаг 3")
+                    return@evaluateJavascript
+                }
+                DiagLog.add("токены: программа получена (${program.length} символов)")
+                tokenWebView.evaluateJavascript(program) { _ ->
+                    tokenWebView.evaluateJavascript(TokenProbe.programCheckScript()) { checkRaw ->
+                        val summary = TokenProbe.summarizeProgramCheck(PlayerApi.decodeJsString(checkRaw))
+                        DiagLog.add("токены: $summary")
+                        render("вложение программы: $summary")
+                    }
+                }
+            }
+        }
         findViewById<Button>(R.id.btnProfileReport).setOnClickListener { copyReport() }
         findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
         findViewById<Button>(R.id.btnProfileBack).setOnClickListener { finish() }
