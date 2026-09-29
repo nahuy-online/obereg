@@ -9,6 +9,8 @@ data class FeedItem(
     val channel: String,
     val duration: String?,
     val views: String?,
+    /** Обложка ролика (первая ссылка, которую отдал сервис). */
+    val thumbnailUrl: String?,
     /** Наша рекомендация: подставлена приложением, а не сервисом. */
     val injected: Boolean,
 )
@@ -34,6 +36,8 @@ object FeedCodec {
                 channel = obj.optString("channel"),
                 duration = obj.optString("duration").takeIf { it.isNotEmpty() && it != "null" },
                 views = obj.optString("views").takeIf { it.isNotEmpty() && it != "null" },
+                thumbnailUrl = obj.optString("thumbnail_url")
+                    .takeIf { it.isNotEmpty() && it != "null" },
                 injected = obj.optBoolean("injected"),
             )
         }

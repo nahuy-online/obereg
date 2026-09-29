@@ -54,6 +54,7 @@
     <string name="feed_recommended">Рекомендации</string>
     <string name="feed_subscriptions">Подписки</string>
     <string name="feed_back">Назад</string>
+    <string name="feed_thumb_description">обложка ролика</string>
     <string name="feed_status_idle">лента: данные берутся со страницы сервиса</string>
     <string name="profile_title">Профиль и настройки</string>
     <string name="profile_tunnel">Наш туннель: включён</string>

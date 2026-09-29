@@ -6,6 +6,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.ListView
 import android.widget.TextView
@@ -160,11 +161,7 @@ class FeedActivity : AppCompatActivity() {
             AppSettings.promoPosition(this),
         )
         items = FeedCodec.mapItems(coreJson)
-        listView.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_list_item_1,
-            items.map(FeedCodec::label),
-        )
+        listView.adapter = FeedAdapter(items)
         DiagLog.add("лента ($mode): роликов ${items.size}")
         statusView.text = if (items.isEmpty()) {
             FeedCodec.emptyMessage(mode)

@@ -567,4 +567,15 @@ class YouTubeExtractorTest {
         val subscriptions = FeedCodec.emptyMessage("subscriptions")
         assertTrue("для подписок своё объяснение", subscriptions.contains("подпишитесь"))
     }
+
+    @Test
+    fun feedMapsThumbnail() {
+        val core = """[{"video_id":"aaaaaaaaaaa","title":"Первый","channel":"К","duration":"1:00","views":"10","thumbnail_url":"https://i.example/1.jpg","injected":false},{"video_id":"zzzzzzzzzzz","title":"Наш выбор","channel":"","duration":null,"views":null,"thumbnail_url":null,"injected":true}]"""
+        val items = FeedCodec.mapItems(core)
+        assertEquals("https://i.example/1.jpg", items[0].thumbnailUrl)
+        assertNull("у нашей рекомендации картинки нет", items[1].thumbnailUrl)
+        // Старый формат без обложки тоже должен читаться.
+        val legacy = FeedCodec.mapItems("""[{"video_id":"aaaaaaaaaaa","title":"Без картинки"}]""")
+        assertNull(legacy[0].thumbnailUrl)
+    }
 }
