@@ -34,6 +34,11 @@
         android:layout_weight="1"
         android:layout_marginTop="6dp" />
 
+    <WebView
+        android:id="@+id/feedWebView"
+        android:layout_width="match_parent"
+        android:layout_height="1dp" />
+
     <Button
         android:id="@+id/btnFeedBack"
         android:layout_width="match_parent"

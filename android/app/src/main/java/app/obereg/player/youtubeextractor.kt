@@ -455,6 +455,18 @@ object PlayerApi {
         return "${html.length} символов, " + marks.joinToString(", ")
     }
 
+    /**
+     * Распаковать строку, которую вернул JavaScript-вызов.
+     *
+     * `evaluateJavascript` отдаёт значение как JSON-строку в кавычках с экранированием;
+     * чтобы получить исходный текст, разбираем его через обёртку.
+     */
+    fun decodeJsString(raw: String?): String? {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty() || text == "null") return null
+        return runCatching { JSONObject("{\"v\":$text}").getString("v") }.getOrNull()
+    }
+
     /** Ключ программного интерфейса, который сервис сам сообщает на странице. */
     fun extractApiKey(html: String): String? =
         Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)

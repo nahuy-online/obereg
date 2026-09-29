@@ -546,4 +546,14 @@ class YouTubeExtractorTest {
         assertEquals("повторы не дублируются", 1, Regex("CONSENT=").findAll(merged).count())
         assertTrue("значение сайта главнее", merged.contains("CONSENT=site"))
     }
+
+    @Test
+    fun engineDataStringIsDecoded() {
+        // evaluateJavascript возвращает JSON-строку с экранированием — её надо распаковать.
+        assertEquals("""{"a":1}""", PlayerApi.decodeJsString("\"{\\\"a\\\":1}\""))
+        assertNull("null из движка — это отсутствие данных", PlayerApi.decodeJsString("null"))
+        assertNull(PlayerApi.decodeJsString(""))
+        assertNull(PlayerApi.decodeJsString(null))
+        assertNull("мусор не должен ломать", PlayerApi.decodeJsString("{не json}"))
+    }
 }
