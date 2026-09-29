@@ -558,6 +558,27 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun feedMapsPlaylists() {
+        val core = """[{"playlist_id":"PL1111111111111111","title":"Мой плейлист","video_count":"12 videos","thumbnail_url":"https://i.example/pl1.jpg"},{"playlist_id":"PL2222222222222222","title":"Без обложки","video_count":null,"thumbnail_url":null}]"""
+        val entries = FeedCodec.mapPlaylists(core)
+        assertEquals(2, entries.size)
+        assertEquals("PL1111111111111111", entries[0].playlistId)
+        assertEquals("Мой плейлист", entries[0].title)
+        assertEquals("12 videos", entries[0].videoCount)
+        assertEquals("https://i.example/pl1.jpg", entries[0].thumbnailUrl)
+        assertNull("у плейлиста без обложки пусто", entries[1].thumbnailUrl)
+        val label = FeedCodec.playlistLabel(entries[0])
+        assertTrue("подпись с названием и числом: $label", label.contains("Мой плейлист") && label.contains("12 videos"))
+        assertTrue("подпись без обложки — по названию", FeedCodec.playlistLabel(entries[1]).contains("Без обложки"))
+        assertTrue(
+            "без названия показывается идентификатор",
+            FeedCodec.playlistLabel(FeedCodec.PlaylistEntry("PL9999", "", null, null)).contains("PL9999"),
+        )
+        assertTrue("битое ядро — пусто", FeedCodec.mapPlaylists("{не массив}").isEmpty())
+        assertTrue("записи без идентификатора отбрасываются", FeedCodec.mapPlaylists("""[{"title":"без id"}]""").isEmpty())
+    }
+
+    @Test
     fun emptyFeedExplainsWhy() {
         // Проверено на устройстве: пустые рекомендации — обычно из-за выключенной истории,
         // поэтому сообщение должно объяснять, а не просто говорить «пусто».

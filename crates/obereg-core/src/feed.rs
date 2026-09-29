@@ -118,11 +118,14 @@ fn read_video(video: &Value) -> Option<FeedItem> {
     })
 }
 
-/// Текст из блока вида `{"runs": [{"text": "..."}]}` или `{"simpleText": "..."}`.
+/// Текст из блока вида `{"runs": [{"text": "..."}]}`, `{"simpleText": "..."}` или `{"content": "..."}`.
 fn text_of(node: Option<&Value>) -> Option<String> {
     let node = node?;
     if let Some(simple) = node.get("simpleText").and_then(Value::as_str) {
         return Some(simple.to_string());
+    }
+    if let Some(content) = node.get("content").and_then(Value::as_str) {
+        return Some(content.to_string());
     }
     if let Some(runs) = node.get("runs").and_then(Value::as_array) {
         let text: String = runs
@@ -161,6 +164,100 @@ pub fn inject(items: &[FeedItem], promo: &FeedItem, position: usize) -> Vec<Feed
 /// Собрать промо-ролик для вставки: идентификатор обязателен, название можно не указывать.
 pub fn promo_from(video_id: &str, title: Option<&str>) -> FeedItem {
     FeedItem::promo(video_id, title.unwrap_or("рекомендуем"))
+}
+
+/// Плейлист в списке плейлистов.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaylistEntry {
+    /// Идентификатор плейлиста (без префикса VL).
+    pub playlist_id: String,
+    /// Название плейлиста.
+    pub title: String,
+    /// Сколько роликов (текстом сервиса, если показано).
+    pub video_count: Option<String>,
+    /// Обложка.
+    pub thumbnail_url: Option<String>,
+}
+
+/// Ключи плейлистов в ответах разных версий сервиса.
+const PLAYLIST_KEYS: [&str; 4] = [
+    "gridPlaylistRenderer",
+    "playlistRenderer",
+    "lockupViewModel",
+    "gridPlaylistRendererWithContext",
+];
+
+/// Разобрать ответ раздела в список плейлистов, сохраняя порядок.
+pub fn parse_playlists(json: &str) -> Result<Vec<PlaylistEntry>> {
+    let root: Value = serde_json::from_str(json)
+        .map_err(|error| CoreError::Config(format!("плейлисты: не разобран JSON: {error}")))?;
+    let mut entries = Vec::new();
+    collect_playlists(&root, &mut entries);
+    Ok(entries)
+}
+
+fn collect_playlists(node: &Value, entries: &mut Vec<PlaylistEntry>) {
+    match node {
+        Value::Object(map) => {
+            for key in PLAYLIST_KEYS {
+                if let Some(playlist) = map.get(key) {
+                    if let Some(entry) = read_playlist(playlist) {
+                        entries.push(entry);
+                    }
+                }
+            }
+            for value in map.values() {
+                collect_playlists(value, entries);
+            }
+        }
+        Value::Array(array) => {
+            for value in array {
+                collect_playlists(value, entries);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Прочитать один плейлист: идентификатор, название, число роликов, обложка.
+fn read_playlist(playlist: &Value) -> Option<PlaylistEntry> {
+    // Обычный вид: playlistId — строка; новый вид (lockupViewModel) — тоже строкой.
+    let raw_id = playlist
+        .get("playlistId")
+        .and_then(Value::as_str)
+        .or_else(|| playlist.get("contentId").and_then(Value::as_str))
+        .unwrap_or_default();
+    let playlist_id = raw_id.trim_start_matches("VL").to_string();
+    if playlist_id.is_empty() {
+        return None;
+    }
+    let title = text_of(playlist.get("title"))
+        .or_else(|| {
+            text_of(
+                playlist
+                    .get("metadata")
+                    .and_then(|m| m.get("lockupMetadataViewModel"))
+                    .and_then(|m| m.get("title")),
+            )
+        })
+        .unwrap_or_default();
+    let video_count = text_of(playlist.get("videoCountText"))
+        .or_else(|| text_of(playlist.get("videoCountShortText")))
+        .or_else(|| {
+            playlist
+                .get("thumbnailOverlays")
+                .and_then(|overlays| overlays.as_array())
+                .and_then(|items| items.first())
+                .and_then(|first| first.get("thumbnailOverlayTimeStatusRenderer"))
+                .and_then(|status| text_of(status.get("text")))
+        });
+    let thumbnail_url = thumbnail_of(playlist);
+    Some(PlaylistEntry {
+        playlist_id,
+        title,
+        video_count,
+        thumbnail_url,
+    })
 }
 
 #[cfg(test)]
@@ -275,5 +372,51 @@ mod tests {
         assert!(parse_feed("{не json}").is_err());
         let empty = parse_feed("{\"contents\": {}}").expect("пустая лента");
         assert!(empty.is_empty());
+    }
+
+    /// Образец списка плейлистов: обычный вид и новый вид (lockupViewModel).
+    fn playlists_sample() -> String {
+        r#"{
+          "contents": {
+            "gridRenderer": {
+              "items": [
+                {"gridPlaylistRenderer": {
+                  "playlistId": "PL1111111111111111",
+                  "title": {"runs": [{"text": "Мой плейлист"}]},
+                  "videoCountText": {"runs": [{"text": "12 videos"}]},
+                  "thumbnail": {"thumbnails": [{"url": "https://i.example/pl1.jpg"}]}
+                }},
+                {"lockupViewModel": {
+                  "contentId": "VLPL2222222222222222",
+                  "metadata": {"lockupMetadataViewModel": {"title": {"content": "Плейлист из нового вида"}}}
+                }}
+              ]
+            }
+          }
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn parses_playlists_in_order() {
+        let entries = parse_playlists(&playlists_sample()).expect("плейлисты должны разбираться");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].playlist_id, "PL1111111111111111");
+        assert_eq!(entries[0].title, "Мой плейлист");
+        assert_eq!(entries[0].video_count.as_deref(), Some("12 videos"));
+        assert!(entries[0].thumbnail_url.is_some());
+        assert_eq!(entries[1].playlist_id, "PL2222222222222222");
+        assert_eq!(entries[1].title, "Плейлист из нового вида");
+    }
+
+    #[test]
+    fn playlists_survive_missing_fields() {
+        let json = r#"{"contents":{"items":[{"gridPlaylistRenderer":{"title":{"simpleText":"без идентификатора"}}}]}}"#;
+        let entries = parse_playlists(json).expect("разбор");
+        assert!(
+            entries.is_empty(),
+            "без идентификатора запись отбрасывается"
+        );
+        assert!(parse_playlists("{не json}").is_err());
     }
 }

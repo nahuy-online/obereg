@@ -278,6 +278,18 @@ class YouTubeActivity : AppCompatActivity() {
             return
         }
 
+        // Прямая ссылка (например, плейлист из ленты): открываем её как есть.
+        val incomingUrl = intent?.getStringExtra(EXTRA_URL)
+        if (!incomingUrl.isNullOrEmpty()) {
+            urlInput.setText(incomingUrl)
+            val id = extractVideoId(incomingUrl)
+            if (id != null) {
+                currentVideoId = id
+            }
+            loadWithFreshRoute(incomingUrl)
+            return
+        }
+
         val incoming = intent?.getStringExtra(EXTRA_VIDEO_ID)
         val startId = if (!incoming.isNullOrEmpty()) incoming else presets[0].first
         urlInput.setText(startId)
@@ -464,5 +476,6 @@ class YouTubeActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_VIDEO_ID = "obereg.youtube.videoId"
         const val EXTRA_QUERY = "obereg.youtube.query"
+        const val EXTRA_URL = "obereg.youtube.url"
     }
 }

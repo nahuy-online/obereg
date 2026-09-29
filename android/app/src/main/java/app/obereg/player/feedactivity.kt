@@ -36,6 +36,7 @@ class FeedActivity : AppCompatActivity() {
     private lateinit var statusView: TextView
     private lateinit var webView: WebView
     private var items: List<FeedItem> = emptyList()
+    private var playlists: List<FeedCodec.PlaylistEntry> = emptyList()
     private var mode: String = MODE_RECOMMENDED
     private var pageHandled = false
 
@@ -67,9 +68,14 @@ class FeedActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnFeedRecommended).setOnClickListener { load(MODE_RECOMMENDED) }
         findViewById<Button>(R.id.btnFeedSubscriptions).setOnClickListener { load(MODE_SUBSCRIPTIONS) }
+        findViewById<Button>(R.id.btnFeedPlaylists).setOnClickListener { load(MODE_PLAYLISTS) }
         findViewById<Button>(R.id.btnFeedBack).setOnClickListener { finish() }
         listView.setOnItemClickListener { _, _, position, _ ->
-            items.getOrNull(position)?.let(::openItem)
+            if (mode == MODE_PLAYLISTS) {
+                playlists.getOrNull(position)?.let(::openPlaylist)
+            } else {
+                items.getOrNull(position)?.let(::openItem)
+            }
         }
 
         load(MODE_RECOMMENDED)
@@ -101,6 +107,8 @@ class FeedActivity : AppCompatActivity() {
     private fun feedUrl(targetMode: String, mobile: Boolean): String = when {
         targetMode == MODE_SUBSCRIPTIONS && mobile -> "https://m.youtube.com/feed/subscriptions"
         targetMode == MODE_SUBSCRIPTIONS -> "https://www.youtube.com/feed/subscriptions"
+        targetMode == MODE_PLAYLISTS && mobile -> "https://m.youtube.com/feed/playlists"
+        targetMode == MODE_PLAYLISTS -> "https://www.youtube.com/feed/playlists"
         mobile -> "https://m.youtube.com/"
         else -> "https://www.youtube.com/?hl=ru"
     }
@@ -154,6 +162,23 @@ class FeedActivity : AppCompatActivity() {
 
     /** Общая часть: разбор ядром и показ списка. */
     private fun handleFeedJson(json: String) {
+        if (mode == MODE_PLAYLISTS) {
+            // Плейлисты — отдельные записи: разбирает ядро, показываем тем же списком-карточками.
+            playlists = FeedCodec.mapPlaylists(CoreHolder.parsePlaylists(json))
+            items = emptyList()
+            listView.adapter = FeedAdapter(
+                playlists.map {
+                    FeedCodec.FeedRow(FeedCodec.playlistLabel(it), it.thumbnailUrl, it.playlistId)
+                },
+            )
+            DiagLog.add("плейлистов: ${playlists.size}")
+            statusView.text = if (playlists.isEmpty()) {
+                FeedCodec.emptyMessage(mode)
+            } else {
+                "плейлистов: ${playlists.size} — нажмите, чтобы открыть"
+            }
+            return
+        }
         val coreJson = CoreHolder.analyzeFeed(
             json,
             AppSettings.promoVideoId(this),
@@ -161,7 +186,9 @@ class FeedActivity : AppCompatActivity() {
             AppSettings.promoPosition(this),
         )
         items = FeedCodec.mapItems(coreJson)
-        listView.adapter = FeedAdapter(items)
+        listView.adapter = FeedAdapter(
+            items.map { FeedCodec.FeedRow(FeedCodec.label(it), it.thumbnailUrl, it.videoId) },
+        )
         DiagLog.add("лента ($mode): роликов ${items.size}")
         statusView.text = if (items.isEmpty()) {
             FeedCodec.emptyMessage(mode)
@@ -238,8 +265,20 @@ class FeedActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
+    /** Плейлист открываем на экране сервиса — там его ролики и порядок. */
+    private fun openPlaylist(entry: FeedCodec.PlaylistEntry) {
+        DiagLog.add("плейлист: открываю ${entry.playlistId}")
+        val intent = android.content.Intent(this, YouTubeActivity::class.java)
+        intent.putExtra(
+            YouTubeActivity.EXTRA_URL,
+            "https://m.youtube.com/playlist?list=${entry.playlistId}",
+        )
+        startActivity(intent)
+    }
+
     companion object {
         const val MODE_RECOMMENDED = "recommended"
         const val MODE_SUBSCRIPTIONS = "subscriptions"
+        const val MODE_PLAYLISTS = "playlists"
     }
 }

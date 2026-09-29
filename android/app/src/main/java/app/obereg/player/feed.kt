@@ -68,9 +68,50 @@ object FeedCodec {
     fun emptyMessage(mode: String): String = when (mode) {
         "subscriptions" ->
             "подписок нет: подпишитесь на каналы на экране сервиса — ролики появятся здесь"
+        "playlists" ->
+            "плейлистов нет: создайте плейлист на экране сервиса (Профиль → Плейлисты) — он появится здесь"
         else ->
             "рекомендаций нет: сервис не отдал ни одного ролика. Чаще всего потому, что " +
                 "в аккаунте выключена история просмотров (на главной самого сервиса тоже пусто). " +
                 "Откройте «Подписки» — там ролики с ваших каналов"
+    }
+
+    /** Строка списка: подпись, картинка и метка для защиты от чужой обложки. */
+    data class FeedRow(val label: String, val thumbUrl: String?, val tag: String)
+
+    /** Плейлист в списке. */
+    data class PlaylistEntry(
+        val playlistId: String,
+        val title: String,
+        val videoCount: String?,
+        val thumbnailUrl: String?,
+    )
+
+    /** Перевод ответа ядра-списка плейлистов в строки для экрана. */
+    fun mapPlaylists(coreJson: String): List<PlaylistEntry> {
+        val array = runCatching { JSONArray(coreJson) }.getOrNull() ?: return emptyList()
+        val entries = mutableListOf<PlaylistEntry>()
+        for (index in 0 until array.length()) {
+            val obj = array.optJSONObject(index) ?: continue
+            val id = obj.optString("playlist_id")
+            if (id.isEmpty()) continue
+            entries += PlaylistEntry(
+                playlistId = id,
+                title = obj.optString("title"),
+                videoCount = obj.optString("video_count").takeIf { it.isNotEmpty() && it != "null" },
+                thumbnailUrl = obj.optString("thumbnail_url")
+                    .takeIf { it.isNotEmpty() && it != "null" },
+            )
+        }
+        return entries
+    }
+
+    /** Подпись строки плейлиста. */
+    fun playlistLabel(entry: PlaylistEntry): String = buildString {
+        append(entry.title.ifEmpty { entry.playlistId })
+        if (entry.videoCount != null) {
+            append("  ·  ")
+            append(entry.videoCount)
+        }
     }
 }

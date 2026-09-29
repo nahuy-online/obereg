@@ -53,6 +53,7 @@
     <string name="action_open_feed">Лента (рекомендации и подписки)</string>
     <string name="feed_recommended">Рекомендации</string>
     <string name="feed_subscriptions">Подписки</string>
+    <string name="feed_playlists">Плейлисты</string>
     <string name="feed_back">Назад</string>
     <string name="feed_thumb_description">обложка ролика</string>
     <string name="feed_status_idle">лента: данные берутся со страницы сервиса</string>

@@ -99,8 +99,9 @@ fn run(args: &[String]) -> Result<(), String> {
             let raw = std::fs::read_to_string(&path)
                 .map_err(|error| format!("не читается файл {path}: {error}"))?;
             let items = obereg_core::feed::parse_feed(&raw).map_err(to_string)?;
-            let position: usize =
-                flag(args, "--position").and_then(|v| v.parse().ok()).unwrap_or(3);
+            let position: usize = flag(args, "--position")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3);
             let final_items = match flag(args, "--promo") {
                 Some(video_id) => {
                     let title = flag(args, "--promo-title");
@@ -115,7 +116,11 @@ fn run(args: &[String]) -> Result<(), String> {
                     "{:>2}. {}{} [{}]{}",
                     index + 1,
                     if item.injected { "★ " } else { "" },
-                    if item.title.is_empty() { "(без названия)" } else { &item.title },
+                    if item.title.is_empty() {
+                        "(без названия)"
+                    } else {
+                        &item.title
+                    },
                     item.video_id,
                     if item.channel.is_empty() {
                         String::new()

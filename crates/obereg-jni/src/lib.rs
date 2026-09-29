@@ -20,7 +20,7 @@
 //! показать причину, не падая.
 //!
 //! Имена экспортируемых функций задаются JNI (`Java_<пакет>_<класс>_<метод>`)
-//! и не могут соответствовать snake_case — это требование платформы, а не стиль.
+//! и не могут соответствовать snake_case - это требование платформы, а не стиль.
 #![allow(non_snake_case)]
 
 use std::sync::Mutex;
@@ -77,7 +77,7 @@ where
     }
 }
 
-/// `version(): String` — версия публичного API ядра.
+/// `version(): String` - версия публичного API ядра.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_version(
     mut env: JNIEnv,
@@ -86,7 +86,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_version(
     java_string(&mut env, obereg_core::CORE_API_VERSION.to_string())
 }
 
-/// `create(configJson: String): Long` — создать сессию ядра. `0` — ошибка.
+/// `create(configJson: String): Long` - создать сессию ядра. `0` - ошибка.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_create(
     mut env: JNIEnv,
@@ -109,7 +109,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_create(
     }
 }
 
-/// `free(handle: Long)` — уничтожить сессию.
+/// `free(handle: Long)` - уничтожить сессию.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_free(
     _env: JNIEnv,
@@ -124,7 +124,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_free(
     }
 }
 
-/// `start(handle: Long): String` — запустить сессию, вернуть JSON `StateSnapshot`.
+/// `start(handle: Long): String` - запустить сессию, вернуть JSON `StateSnapshot`.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_start(
     mut env: JNIEnv,
@@ -136,7 +136,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_start(
     })
 }
 
-/// `stop(handle: Long): String` — остановить сессию.
+/// `stop(handle: Long): String` - остановить сессию.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_stop(
     mut env: JNIEnv,
@@ -148,7 +148,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_stop(
     })
 }
 
-/// `status(handle: Long): String` — текущее состояние.
+/// `status(handle: Long): String` - текущее состояние.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_status(
     mut env: JNIEnv,
@@ -158,7 +158,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_status(
     with_session(&mut env, handle, |session| Ok(session.status_json()))
 }
 
-/// `setTransportMode(handle: Long, mode: String): String` — переключить режим.
+/// `setTransportMode(handle: Long, mode: String): String` - переключить режим.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_setTransportMode(
     mut env: JNIEnv,
@@ -179,7 +179,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_setTransportMode(
     })
 }
 
-/// `journalJson(handle: Long): String` — последние события журнала.
+/// `journalJson(handle: Long): String` - последние события журнала.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_journalJson(
     mut env: JNIEnv,
@@ -189,7 +189,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_journalJson(
     with_session(&mut env, handle, |session| Ok(session.events_json(10_000)))
 }
 
-/// `catalogSearch(handle: Long, query: String, limit: Int): String` — поиск в каталоге.#[no_mangle]
+/// `catalogSearch(handle: Long, query: String, limit: Int): String` - поиск в каталоге.#[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_catalogSearch(
     mut env: JNIEnv,
     _class: JClass,
@@ -206,7 +206,25 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_catalogSearch(
     })
 }
 
-/// `localHttpProxyAddr(handle: Long): String` — адрес HTTP CONNECT-прокси ядра/// (пустая строка, если туннель не поднят). Нужен WebView: он умеет только HTTP-прокси.
+/// `parsePlaylists(handle, json): String` — разбор списка плейлистов из раздела.
+#[no_mangle]
+pub extern "system" fn Java_app_obereg_core_CoreBridge_parsePlaylists(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    playlists_json: JString,
+) -> jstring {
+    let Some(json) = rust_string(&mut env, playlists_json) else {
+        return java_string(&mut env, error_json("playlists json is null"));
+    };
+    with_session(&mut env, handle, move |_session| {
+        let entries = obereg_core::feed::parse_playlists(&json)?;
+        serde_json::to_string(&entries)
+            .map_err(|error| CoreError::Config(format!("плейлисты: не собраны в JSON: {error}")))
+    })
+}
+
+/// `localHttpProxyAddr(handle: Long): String` - адрес HTTP CONNECT-прокси ядра/// (пустая строка, если туннель не поднят). Нужен WebView: он умеет только HTTP-прокси.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_localHttpProxyAddr(
     mut env: JNIEnv,
@@ -218,7 +236,7 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_localHttpProxyAddr(
     })
 }
 
-/// `analyzePlayerResponse(handle: Long, json: String): String` — разбор ответа видеосервиса
+/// `analyzePlayerResponse(handle: Long, json: String): String` - разбор ответа видеосервиса
 /// силами ядра: выбор потока для своего плеера. Логика и её тесты живут в ядре,
 /// оболочка отвечает только за сетевой запрос.
 #[no_mangle]
@@ -237,10 +255,10 @@ pub extern "system" fn Java_app_obereg_core_CoreBridge_analyzePlayerResponse(
     })
 }
 
-/// `analyzeFeed(handle, feedJson, promoId, promoTitle, position): String` — разбор ленты
+/// `analyzeFeed(handle, feedJson, promoId, promoTitle, position): String` - разбор ленты
 /// сервиса и (если задан ролик) вставка нашей рекомендации на указанную позицию.
 ///
-/// Возвращает JSON-массив роликов; ошибка — объект с полем `error`, как и везде.
+/// Возвращает JSON-массив роликов; ошибка - объект с полем `error`, как и везде.
 #[no_mangle]
 pub extern "system" fn Java_app_obereg_core_CoreBridge_analyzeFeed(
     mut env: JNIEnv,

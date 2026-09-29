@@ -173,7 +173,7 @@ gradle -p android :app:assembleDebug
 | Точка входа | `app.obereg.player.MainActivity` (+ `PlayerActivity`) |
 | Нативные библиотеки внутри APK | `lib/{arm64-v8a,armeabi-v7a,x86_64}/libobereg_{jni,ffi}.so` |
 | `native-code` | arm64-v8a, armeabi-v7a, x86_64 |
-| SHA-256 | `8660AD429A7BE10010FB5EE6AF027C14D0C04393BC3C319BDB786F415D5DAF32` |
+| SHA-256 | `ADCD6B1247DB3702FE273AAA1B458D246F7B98791DFFF9B506DF768ED90D7CF7` |
 
 Осталось только установить APK на телефон/эмулятор и пройти сценарий с экрана
 (команды — в `android/README.md`, раздел «Приёмка на устройстве»).
@@ -1042,3 +1042,18 @@ FeedActivity, FeedCodec; и главное — символ Java_app_obereg_core
 Проверено: **49 тестов оболочки** (добавлено чтение обложки и устойчивость к ответу без неё),
 в APK подтверждены ресурсы `id/feedThumb`, `id/feedRowLabel`, `layout/item_feed` и классы
 `FeedAdapter`, `ThumbLoader`.
+
+### 2.46 Плейлисты: третий раздел ленты
+
+| Что | Как |
+|---|---|
+| Кнопка «Плейлисты» | Третий раздел рядом с «Рекомендации» и «Подписки» |
+| Данные | Страница `m.youtube.com/feed/playlists` через движок, как и остальные разделы |
+| Разбор | Ядро: `parse_playlists` понимает обычный вид и новый (`lockupViewModel`), 2 теста ядра |
+| Показ | Карточки с названием, числом роликов и обложкой — та же строка, что у видео |
+| Открытие | Нажатие открывает плейлист на экране сервиса (там порядок роликов и воспроизведение) |
+| Пусто | Понятное сообщение: «создайте плейлист на экране сервиса — он появится здесь» |
+
+Проверено: **50 тестов оболочки**, **58 тестов ядра**; в APK подтверждены ресурсы
+`id/btnFeedPlaylists`, `string/feed_playlists`, классы `mapPlaylists`, `playlistLabel`,
+`MODE_PLAYLISTS`, и **символ `Java_app_obereg_core_CoreBridge_parsePlaylists` в `libobereg_jni.so`**.

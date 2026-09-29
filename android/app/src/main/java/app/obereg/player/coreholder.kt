@@ -208,6 +208,14 @@ object CoreHolder {
         return CoreBridge.analyzeFeedJson(handle, feedJson, promoId, promoTitle, position)
     }
 
+    /** Список плейлистов (разбор — в ядре). */
+    fun parsePlaylists(playlistsJson: String): String {
+        if (handle == 0L) {
+            return CoreBridge.errorJson("сессия не создана")
+        }
+        return CoreBridge.parsePlaylistsJson(handle, playlistsJson)
+    }
+
     /** Запустить сессию (JSON-ответ ядра). */
     fun start(): String {
         if (handle == 0L) return CoreBridge.errorJson("сессия не создана")

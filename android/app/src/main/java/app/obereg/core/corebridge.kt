@@ -45,6 +45,7 @@ object CoreBridge {
     private external fun catalogSearch(handle: Long, query: String, limit: Int): String
     private external fun localHttpProxyAddr(handle: Long): String
     private external fun analyzePlayerResponse(handle: Long, playerResponseJson: String): String
+    private external fun parsePlaylists(handle: Long, playlistsJson: String): String
     private external fun analyzeFeed(
         handle: Long,
         feedJson: String,
@@ -106,6 +107,10 @@ object CoreBridge {
         promoTitle: String,
         position: Int,
     ): String = call(handle) { analyzeFeed(handle, feedJson, promoId, promoTitle, position) }
+
+    /** Список плейлистов: JSON-массив записей. */
+    fun parsePlaylistsJson(handle: Long, json: String): String =
+        call(handle) { parsePlaylists(handle, json) }
 
     /** JSON-объект ошибки в том же формате, что возвращает ядро. */
     fun errorJson(message: String): String = """{"error":"${message.replace('"', '\'')}"}"""
