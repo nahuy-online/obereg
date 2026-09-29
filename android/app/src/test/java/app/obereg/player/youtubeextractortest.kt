@@ -779,10 +779,15 @@ class YouTubeExtractorTest {
     @Test
     fun integrityExchangeHelpers() {
         val info = TokenProbe.parseIntegrityResponse("""["ТОКЕН-ДОСТАТОЧНО-ДЛИННЫЙ-ВОТ-ТАК",7200,600,"запас"]""")
-        assertTrue("токен прочитан", info != null && info.token.startsWith("ТОКЕН"))
+        assertTrue("токен прочитан", info != null && info.token?.startsWith("ТОКЕН") == true)
         assertTrue("срок прочитан", info?.ttlSecs == 7200)
         assertTrue("битый ответ не ломает", TokenProbe.parseIntegrityResponse("не json") == null)
-        assertTrue("короткий отсеян", TokenProbe.parseIntegrityResponse("""["к",1,1,"x"]""") == null)
+        assertTrue("пустой ответ отсеян", TokenProbe.parseIntegrityResponse("""[null,1,null,null]""") == null)
+        val fb = TokenProbe.parseIntegrityResponse(
+            """[null,43200,null,"Mla98z86kVD3vb25wyVvfIlZStG2rD-oGOT3IMwhQqULeMXe2mzp25nTKcrqiF-M889ZmvSUwCbWLqPl6X0Xb1SkAimK7qNYZTPvuPbWrlOf-xjuOqi0oQ"]""",
+        )
+        assertTrue("запасной прочитан", fb != null && fb.token == null && fb.fallback.length > 60)
+        assertTrue("срок запасного", fb?.ttlSecs == 43200)
         val ok = """{"stage":"по-токен","video":"dQw4w9WgXcQ","len":180,"head":"abc"}"""
         assertTrue(TokenProbe.summarizeMint(ok).contains("180"))
         assertTrue(TokenProbe.summarizeMint("""{"stage":"нет-минтера","signals":0}""").contains("минтер"))

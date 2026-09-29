@@ -324,67 +324,82 @@ class ProfileActivity : AppCompatActivity() {
                 render("снимка нет — сначала шаг 7")
                 return@evaluateJavascript
             }
+            val bodyJson = org.json.JSONArray()
+                .put("O43z0dpjhgX20SCx4KAo")
+                .put(snapshot)
+                .toString()
             Thread {
-                var failure = ""
-                var resultText = ""
-                var httpCode = 0
-                try {
-                    val client = okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(java.time.Duration.ofSeconds(15))
-                        .readTimeout(java.time.Duration.ofSeconds(25))
-                        .build()
-                    val bodyJson = org.json.JSONArray()
-                        .put("O43z0dpjhgX20SCx4KAo")
-                        .put(snapshot)
-                        .toString()
-                    val body = bodyJson.toRequestBody("application/json+protobuf".toMediaType())
-                    val request = okhttp3.Request.Builder()
-                        .url("https://www.youtube.com/api/jnn/v1/GenerateIT")
-                        .post(body)
-                        .header("content-type", "application/json+protobuf")
-                        .header("x-goog-api-key", TokenProbe.WAA_API_KEY)
-                        .header("x-user-agent", "grpc-web-javascript/0.1")
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        httpCode = response.code
-                        resultText = response.body?.string().orEmpty()
+                val endpoints = listOf(
+                    "https://jnn-pa.googleapis.com/\$rpc/google.internal.waa.v1.Waa/GenerateIT",
+                    "https://www.youtube.com/api/jnn/v1/GenerateIT",
+                )
+                var best: TokenProbe.IntegrityTokenInfo? = null
+                val report = StringBuilder()
+                for (candidate in endpoints) {
+                    var code = 0
+                    var text = ""
+                    val host = candidate.substringAfter("://").substringBefore("/")
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(java.time.Duration.ofSeconds(15))
+                            .readTimeout(java.time.Duration.ofSeconds(25))
+                            .build()
+                        val body = bodyJson.toRequestBody("application/json+protobuf".toMediaType())
+                        val request = okhttp3.Request.Builder()
+                            .url(candidate)
+                            .post(body)
+                            .header("x-goog-api-key", TokenProbe.WAA_API_KEY)
+                            .header("x-user-agent", "grpc-web-javascript/0.1")
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            code = response.code
+                            text = response.body?.string().orEmpty()
+                        }
+                    } catch (error: Exception) {
+                        report.append("; $host: сбой ${error.message?.take(60)}")
+                        continue
                     }
-                } catch (error: Exception) {
-                    failure = error.message.orEmpty()
+                    val info = TokenProbe.parseIntegrityResponse(text)
+                    val hasToken = info?.token != null
+                    report.append(
+                        "; $host: HTTP $code, токен ${if (hasToken) "есть" else "нет"}, " +
+                            "запасной ${if (info != null && info.fallback.isNotEmpty()) "есть" else "нет"}",
+                    )
+                    if (info != null && (best == null || (best?.token == null && hasToken))) { best = info }
+                    if (hasToken) break
                 }
+                val info = best
                 runOnUiThread {
-                    if (failure.isNotEmpty()) {
-                        DiagLog.add("токены: обмен не прошёл: ${failure.take(110)}")
-                        render("обмен не прошёл: ${failure.take(110)}")
-                        return@runOnUiThread
-                    }
-                    val info = TokenProbe.parseIntegrityResponse(resultText)
+                    DiagLog.add("токены: обмен:$report")
                     if (info == null) {
-                        DiagLog.add("токены: обмен: HTTP $httpCode, ответ: ${resultText.take(140)}")
-                        render("обмен: HTTP $httpCode, ответ: ${resultText.take(140)}")
+                        render("обмен не дал токена$report")
                         return@runOnUiThread
                     }
                     DiagLog.add(
-                        "токены: токен целостности получен (${info.token.length} символов), срок ${info.ttlSecs} сек, порог ${info.refreshSecs} сек",
+                        "токены: итог обмена: токен целостности " +
+                            (if (info.token != null) "есть (${info.token.length})" else "нет") +
+                            ", запасной " + (if (info.fallback.isNotEmpty()) "есть (${info.fallback.length})" else "нет") +
+                            ", срок ${info.ttlSecs} сек",
                     )
-                    val escaped = org.json.JSONObject.quote(info.token)
+                    val pageToken = info.token ?: info.fallback
+                    val escaped = org.json.JSONObject.quote(pageToken)
                     tokenWebView.evaluateJavascript("window.__oberegIntegrityToken = $escaped; 'ok'") { _ ->
                         tokenWebView.evaluateJavascript(TokenProbe.mintScript()) { _ -> }
                     }
-                    pollMint(1)
+                    pollMint(1, info)
                 }
             }.start()
         }
     }
 
     /** Минт PO-токена: ждём результат из страницы и сохраняем токен для видео. */
-    private fun pollMint(attempt: Int) {
+    private fun pollMint(attempt: Int, info: TokenProbe.IntegrityTokenInfo) {
         tokenWebView.postDelayed({
             tokenWebView.evaluateJavascript(TokenProbe.mintPollScript()) { raw ->
                 val (result, stages) = TokenProbe.splitPoll(raw)
                 if (result.isEmpty()) {
                     if (attempt < 15) {
-                        pollMint(attempt + 1)
+                        pollMint(attempt + 1, info)
                     } else {
                         DiagLog.add("токены: минт - ответа нет (этапы: $stages)")
                         render("минт: ответа нет")
@@ -395,19 +410,29 @@ class ProfileActivity : AppCompatActivity() {
                 val summary = TokenProbe.summarizeMint(result)
                 if (TokenProbe.mintFinal(stage)) {
                     DiagLog.add("токены: $summary")
-                    render(summary)
-                    val token = TokenProbe.mintValue(result)
-                    if (token != null) {
+                    val minted = TokenProbe.mintValue(result)
+                    val fallbackToken = info.fallback.takeIf { it.length >= 20 }
+                    val finalToken = minted ?: fallbackToken
+                    if (finalToken != null) {
+                        val ttl = if (info.ttlSecs > 0) info.ttlSecs else 21600
                         TokenStore.put(
                             TokenProbe.PROBE_VIDEO_ID,
-                            PoToken(token, System.currentTimeMillis() + 6 * 60 * 60 * 1000L),
+                            PoToken(finalToken, System.currentTimeMillis() + ttl * 1000L),
                         )
-                        DiagLog.add("токены: PO-токен сохранён для ${TokenProbe.PROBE_VIDEO_ID}")
+                        DiagLog.add(
+                            "токены: ${if (minted != null) "PO-токен" else "запасной токен"} сохранён (${finalToken.length} символов)",
+                        )
+                        render(
+                            if (minted != null) summary
+                            else "минт не отдал токен — сохранён запасной (${finalToken.length} символов); $summary",
+                        )
+                    } else {
+                        render(summary)
                     }
                 } else {
                     render("минт: $summary")
                     if (attempt < 15) {
-                        pollMint(attempt + 1)
+                        pollMint(attempt + 1, info)
                     } else {
                         DiagLog.add("токены: минт затянулся: $summary")
                     }

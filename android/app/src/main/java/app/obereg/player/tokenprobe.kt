@@ -746,19 +746,27 @@ object TokenProbe {
 
     /** Разобранный ответ обмена на токен целостности. */
     data class IntegrityTokenInfo(
-        val token: String,
+        val token: String?,
         val ttlSecs: Int,
         val refreshSecs: Int,
         val fallback: String,
     )
 
-    /** Разбор ответа обмена: [токен, срок, порог обновления, запасной токен]. */
+    /**
+     * Разбор ответа обмена: [токен, срок, порог обновления, запасной токен].
+     *
+     * Токен может быть пуст (null) — тогда сервис выдаёт только запасной;
+     * такой ответ тоже годен: запасной можно подставлять напрямую.
+     */
     fun parseIntegrityResponse(jsonText: String?): IntegrityTokenInfo? {
         if (jsonText.isNullOrEmpty() || !jsonText.trimStart().startsWith("[")) return null
         val arr = runCatching { org.json.JSONArray(jsonText) }.getOrNull() ?: return null
-        val token = arr.optString(0)
-        if (token.length < 20) return null
-        return IntegrityTokenInfo(token, arr.optInt(1, 0), arr.optInt(2, 0), arr.optString(3))
+        val rawToken = arr.opt(0)
+        val token = (rawToken as? String)?.takeIf { it.length >= 20 }
+        val rawFallback = arr.opt(3)
+        val fallback = (rawFallback as? String).orEmpty()
+        if (token == null && fallback.length < 20) return null
+        return IntegrityTokenInfo(token, arr.optInt(1, 0), arr.optInt(2, 0), fallback)
     }
 
     /**
