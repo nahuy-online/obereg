@@ -51,7 +51,19 @@ class ProfileActivity : AppCompatActivity() {
         tokenWebView.webChromeClient = WebChromeClient()
         tokenWebView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
-                runTokenProbe()
+                runTokenProbe(attempt = 1)
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: android.webkit.WebResourceRequest?,
+                error: android.webkit.WebResourceError?,
+            ) {
+                val description = error?.description?.toString() ?: "неизвестная ошибка"
+                if (request?.isForMainFrame == true) {
+                    DiagLog.add("токены: страница не загрузилась — $description")
+                    render("страница сервиса не загрузилась: $description")
+                }
             }
         }
 
@@ -214,10 +226,18 @@ class ProfileActivity : AppCompatActivity() {
      *
      * Результат попадает и на экран, и в журнал — по нему решается следующий шаг этапа.
      */
-    private fun runTokenProbe() {
+    private fun runTokenProbe(attempt: Int) {
         tokenWebView.evaluateJavascript(TokenProbe.reportScript()) { raw ->
             val summary = TokenProbe.summarize(raw)
             DiagLog.add("токены: $summary")
+            // Пустая страница (нет скриптов) — почти всегда сорванная загрузка:
+            // даём ей вторую попытку, прежде чем делать выводы.
+            val empty = summary.contains("скриптов на странице: 0")
+            if (empty && attempt < 2) {
+                render("страница пустая — пробую перезагрузить")
+                tokenWebView.postDelayed({ tokenWebView.loadUrl(TokenProbe.PROBE_URL) }, 2_000)
+                return@evaluateJavascript
+            }
             render("движок токенов: $summary")
         }
     }

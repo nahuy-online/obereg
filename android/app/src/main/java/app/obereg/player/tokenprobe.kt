@@ -51,7 +51,9 @@ object TokenProbe {
         if (root.has("error")) return "ошибка в движке: ${root.optString("error").take(140)}"
 
         val visitor = root.optString("visitorData")
+        val pageUrl = root.optString("url").take(80)
         return listOf(
+            "страница: " + pageUrl.ifEmpty { "?" },
             "конфигурация: " + if (root.optBoolean("hasYtcfg")) "есть" else "нет",
             "гостевые данные: " + if (visitor.isNullOrEmpty() || visitor == "null") {
                 "нет"

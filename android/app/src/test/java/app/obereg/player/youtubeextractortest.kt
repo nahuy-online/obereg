@@ -716,4 +716,13 @@ class YouTubeExtractorTest {
         assertTrue("результат складывается в страницу", script.contains("__oberegChallenge"))
         assertFalse("многоточий быть не должно", script.contains("…"))
     }
+
+    @Test
+    fun probeShowsPageAddress() {
+        val json = """{"url":"https://www.youtube.com/embed/xyz","hasYtcfg":true,"visitorData":"Cgt","hasPlayer":true,"hasVideo":true,"scriptCount":16}"""
+        val summary = TokenProbe.summarize("\"" + json.replace("\"", "\\\"") + "\"")
+        assertTrue("адрес страницы виден: $summary", summary.contains("youtube.com/embed"))
+        val emptySummary = TokenProbe.summarize("\"{\\\"url\\\":\\\"about:blank\\\",\\\"hasYtcfg\\\":false,\\\"scriptCount\\\":0}\"")
+        assertTrue("пустая страница распознаётся: $emptySummary", emptySummary.contains("скриптов на странице: 0"))
+    }
 }
