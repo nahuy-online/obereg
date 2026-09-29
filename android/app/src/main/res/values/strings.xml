@@ -70,6 +70,7 @@
     <string name="profile_challenge_detail">Разбор проверки и загрузка программы (шаг 3)</string>
     <string name="profile_report">Скопировать отчёт для разработчика</string>
     <string name="profile_program_load">Загрузить программу проверки (шаг 4)</string>
+    <string name="profile_program_introspect">Разбор программы и интерпретатор (шаг 5)</string>
     <string name="profile_status_idle">настройки: изменения сохраняются сразу</string>
     <string name="youtube_via_our_tunnel">Через наш туннель (для этого экрана)</string>
     <string name="player_preset_1">Локальное видео</string>

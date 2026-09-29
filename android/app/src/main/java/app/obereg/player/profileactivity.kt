@@ -113,6 +113,16 @@ class ProfileActivity : AppCompatActivity() {
             tokenWebView.evaluateJavascript(TokenProbe.challengeDetailScript()) { _ -> }
             pollChallengeDetail(1)
         }
+        findViewById<Button>(R.id.btnIntrospect).setOnClickListener {
+            render("разбор программы проверки…")
+            DiagLog.add("токены: разбор программы")
+            tokenWebView.evaluateJavascript(TokenProbe.programIntrospectScript()) { raw ->
+                val summary = TokenProbe.summarizeIntrospect(PlayerApi.decodeJsString(raw))
+                DiagLog.add("токены: $summary")
+                render("разбор программы: $summary")
+                loadInterpreterIfNeeded()
+            }
+        }
         findViewById<Button>(R.id.btnProgramLoad).setOnClickListener {
             // Программу вкладывает приложение: страница сервиса запрещает eval (Trusted Types).
             render("вкладываю программу проверки в движок…")
@@ -160,6 +170,61 @@ class ProfileActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Подгрузка интерпретатора проверки: адрес приходит вместе с проверкой,
+     * а забирает его приложение — страница этого сделать не может (запрет eval).
+     */
+    private fun loadInterpreterIfNeeded() {
+        tokenWebView.evaluateJavascript(TokenProbe.programIntrospectScript()) { raw ->
+            val root = runCatching {
+                org.json.JSONObject(PlayerApi.decodeJsString(raw).orEmpty())
+            }.getOrNull() ?: return@evaluateJavascript
+            val url = root.optString("interpreterUrl")
+            if (url.isEmpty() || url == "null") {
+                DiagLog.add("токены: адреса интерпретатора нет в проверке")
+                return@evaluateJavascript
+            }
+            if (root.optBoolean("hasInterpreterNow")) {
+                DiagLog.add("токены: интерпретатор уже загружен")
+                return@evaluateJavascript
+            }
+            Thread {
+                val text = try {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(java.time.Duration.ofSeconds(15))
+                        .readTimeout(java.time.Duration.ofSeconds(20))
+                        .build()
+                    val request = okhttp3.Request.Builder().url(url).build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) response.body?.string() else null
+                    }
+                } catch (error: Exception) {
+                    null
+                }
+                runOnUiThread {
+                    if (text.isNullOrEmpty()) {
+                        DiagLog.add("токены: интерпретатор не получен")
+                        render("интерпретатор не получен (сеть)")
+                        return@runOnUiThread
+                    }
+                    DiagLog.add("токены: интерпретатор получен (${text.length} символов)")
+                    // Складываем текст в страницу, чтобы им можно было воспользоваться дальше.
+                    val escaped = org.json.JSONObject.quote(text)
+                    tokenWebView.evaluateJavascript(
+                        "window.__oberegInterpreterText = $escaped; 'ok'",
+                    ) { _ ->
+                        tokenWebView.evaluateJavascript(text) { _ ->
+                            tokenWebView.evaluateJavascript(TokenProbe.programCheckScript()) { checkRaw ->
+                                val check = TokenProbe.summarizeProgramCheck(PlayerApi.decodeJsString(checkRaw))
+                                DiagLog.add("токены: интерпретатор вложен, $check")
+                                render("интерпретатор вложен: $check")
+                            }
+                        }
+                    }
+                }
+            }.start()
+        }
+    }
     /** Опрос разбора проверки (шаг 3) — тем же способом, что и сам запрос. */
     private fun pollChallengeDetail(attempt: Int) {
         tokenWebView.postDelayed({

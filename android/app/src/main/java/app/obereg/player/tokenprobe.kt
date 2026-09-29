@@ -341,6 +341,45 @@ object TokenProbe {
         }
     }
 
+    /** Разбор программы: начало текста и адрес интерпретатора (его подгружает приложение). */
+    fun programIntrospectScript(): String = """
+        (function(){
+          try {
+            var text = window.__oberegLastChallenge;
+            if (!text) { return JSON.stringify({error: 'нет сохранённой проверки'}); }
+            var root = JSON.parse(text);
+            var data = root.botguardData || {};
+            var program = (typeof data.program === 'string') ? data.program : '';
+            return JSON.stringify({
+              programLength: program.length,
+              programHead: program.slice(0, 400),
+              interpreterUrl: (typeof data.interpreterSafeUrl === 'string') ? data.interpreterSafeUrl : null,
+              hasBotguardNow: (typeof window.botguard !== 'undefined'),
+              hasInterpreterNow: (typeof window.__oberegInterpreterText === 'string')
+            });
+          } catch (e) {
+            return JSON.stringify({error: String(e)});
+          }
+        })()
+    """.trimIndent()
+
+    /** Сводка разбора программы. */
+    fun summarizeIntrospect(jsonText: String?): String {
+        if (jsonText.isNullOrEmpty()) return "разбор программы: движок не ответил"
+        val root = runCatching { JSONObject(jsonText) }.getOrNull()
+            ?: return "разбор программы не прочитан: ${jsonText.take(120)}"
+        if (root.has("error")) return "разбор программы: ${root.optString("error").take(140)}"
+        val head = root.optString("programHead").replace("\n", " ").take(180)
+        val url = root.optString("interpreterUrl")
+        return buildString {
+            append("разбор программы: ${root.optInt("programLength")} символов")
+            append(", начало: «${head.take(120)}…»")
+            append(", интерпретатор: ")
+            append(if (url.isEmpty() || url == "null") "нет" else "есть (${url.take(60)}…)")
+            append(", botguard сейчас: ${if (root.optBoolean("hasBotguardNow")) "есть" else "нет"}")
+        }
+    }
+
     private fun names(array: org.json.JSONArray): List<String> =
         (0 until array.length()).mapNotNull { array.optString(it).takeIf { name -> name.isNotEmpty() } }
 }
