@@ -173,7 +173,7 @@ gradle -p android :app:assembleDebug
 | Точка входа | `app.obereg.player.MainActivity` (+ `PlayerActivity`) |
 | Нативные библиотеки внутри APK | `lib/{arm64-v8a,armeabi-v7a,x86_64}/libobereg_{jni,ffi}.so` |
 | `native-code` | arm64-v8a, armeabi-v7a, x86_64 |
-| SHA-256 | `5B39B0652FB6EBF01E1E02E978CD520ED3218F92345B436349943195F0AD0CE4` |
+| SHA-256 | `BC8F7D4D0B73E0DE4BF17E1D61939B1796D24A0B125EA3C61DD7193193CD7403` |
 
 Осталось только установить APK на телефон/эмулятор и пройти сценарий с экрана
 (команды — в `android/README.md`, раздел «Приёмка на устройстве»).
@@ -1237,3 +1237,19 @@ script3.js: OK    (разбор проверки)
 Проверено: **62 теста оболочки**, сборка успешна; в APK подтверждены ресурсы `id/btnIntrospect`,
 `string/profile_program_introspect` и классы `programIntrospectScript`, `summarizeIntrospect`,
 `loadInterpreterIfNeeded`.
+
+### 2.59 Аттестация, шаг 6: поиск интерпретатора в обёртке и его подгрузка
+
+По отчёту устройства (21:45): «программа» — это **закодированные данные** (не JS), её должен
+обрабатывать интерпретатор; адрес интерпретатора лежит в обёртке (объект с закрытым полем
+`privateDoNotAccessOrElseSafeScriptWrappedValue`), поэтому простая строковая проверка его не видела.
+
+| Что сделано | Как |
+|---|---|
+| Глубокий поиск адреса интерпретатора | Обход обёртки до самой ссылки |
+| Подгрузка интерпретатора приложением | Адрес забирается приложением, текст вкладывается в движок и сохраняется (`window.__oberegInterpreterText`) |
+| Отчёт | Размер и начало текста интерпретатора (первые 160 символов) — по ним видно, что это за код |
+| Побочный вывод | Сбои шага 1 в том же отчёте — проблемы сети пользователя (`ERR_NAME_NOT_RESOLVED`), не дефект приложения |
+
+Проверено: **62 теста оболочки**, сборка успешна; в APK подтверждены ресурсы `id/btnInterpreterLoad`,
+`string/profile_interpreter_load` и классы `interpreterFindScript`, `summarizeInterpreterFind`.

@@ -113,6 +113,60 @@ class ProfileActivity : AppCompatActivity() {
             tokenWebView.evaluateJavascript(TokenProbe.challengeDetailScript()) { _ -> }
             pollChallengeDetail(1)
         }
+        findViewById<Button>(R.id.btnInterpreterLoad).setOnClickListener {
+            render("ищу адрес интерпретатора…")
+            DiagLog.add("токены: поиск интерпретатора")
+            tokenWebView.evaluateJavascript(TokenProbe.interpreterFindScript()) { raw ->
+                val summary = TokenProbe.summarizeInterpreterFind(PlayerApi.decodeJsString(raw))
+                DiagLog.add("токены: $summary")
+                render(summary)
+                val root = runCatching {
+                    org.json.JSONObject(PlayerApi.decodeJsString(raw).orEmpty())
+                }.getOrNull()
+                val url = root?.optString("url").orEmpty()
+                if (url.isEmpty() || url == "null") {
+                    DiagLog.add("токены: адрес интерпретатора не найден")
+                    return@evaluateJavascript
+                }
+                Thread {
+                    val text = try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(java.time.Duration.ofSeconds(15))
+                            .readTimeout(java.time.Duration.ofSeconds(25))
+                            .build()
+                        val request = okhttp3.Request.Builder().url(url).build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) response.body?.string() else null
+                        }
+                    } catch (error: Exception) {
+                        null
+                    }
+                    runOnUiThread {
+                        if (text.isNullOrEmpty()) {
+                            DiagLog.add("токены: интерпретатор не получен (сеть)")
+                            render("интерпретатор не получен (сеть)")
+                            return@runOnUiThread
+                        }
+                        val head = text.replace("\n", " ").take(160)
+                        DiagLog.add("токены: интерпретатор получен (${text.length} символов): $head")
+                        val escaped = org.json.JSONObject.quote(text)
+                        tokenWebView.evaluateJavascript(
+                            "window.__oberegInterpreterText = $escaped; 'ok'",
+                        ) { _ ->
+                            tokenWebView.evaluateJavascript(text) { _ ->
+                                tokenWebView.evaluateJavascript(TokenProbe.programCheckScript()) { checkRaw ->
+                                    val check = TokenProbe.summarizeProgramCheck(
+                                        PlayerApi.decodeJsString(checkRaw),
+                                    )
+                                    DiagLog.add("токены: интерпретатор вложен, $check")
+                                    render("интерпретатор: ${text.length} символов; $check")
+                                }
+                            }
+                        }
+                    }
+                }.start()
+            }
+        }
         findViewById<Button>(R.id.btnIntrospect).setOnClickListener {
             render("разбор программы проверки…")
             DiagLog.add("токены: разбор программы")
