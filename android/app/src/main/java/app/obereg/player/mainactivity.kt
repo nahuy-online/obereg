@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        if (TokenStore.size() == 0) TokenStore.fromJson(AppSettings.tokenState(this))
 
         statusView = findViewById(R.id.status)
         logView = findViewById(R.id.output)

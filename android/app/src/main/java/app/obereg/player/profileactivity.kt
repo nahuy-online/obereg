@@ -419,6 +419,7 @@ class ProfileActivity : AppCompatActivity() {
                             TokenProbe.PROBE_VIDEO_ID,
                             PoToken(finalToken, System.currentTimeMillis() + ttl * 1000L),
                         )
+                        AppSettings.saveTokenState(this, TokenStore.toJson())
                         DiagLog.add(
                             "токены: ${if (minted != null) "PO-токен" else "запасной токен"} сохранён (${finalToken.length} символов)",
                         )

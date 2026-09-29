@@ -67,6 +67,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_player)
+        if (TokenStore.size() == 0) TokenStore.fromJson(AppSettings.tokenState(this))
 
         playerView = findViewById(R.id.playerView)
         urlInput = findViewById(R.id.urlInput)
@@ -267,7 +268,7 @@ class PlayerActivity : AppCompatActivity() {
                 YouTubeExtractor(
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
-                    poTokenProvider = { TokenStore.get(videoId)?.value },
+                    poTokenProvider = { (TokenStore.get(videoId) ?: TokenStore.latest())?.value },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->
                 runOnUiThread {
@@ -385,7 +386,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun appendStoredPot(url: String, local: Boolean): String {
         if (local) return url
         val videoId = currentVideoId ?: return url
-        val pot = TokenStore.get(videoId)?.value ?: return url
+        val pot = (TokenStore.get(videoId) ?: TokenStore.latest())?.value ?: return url
         return PlayerApi.appendPoToken(url, pot)
     }
 

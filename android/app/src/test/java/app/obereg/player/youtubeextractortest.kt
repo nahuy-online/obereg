@@ -796,4 +796,21 @@ class YouTubeExtractorTest {
         val v = """{"stage":"по-токен","token":"zxc","len":3,"video":"v"}"""
         assertTrue("значение читается", TokenProbe.mintValue(v) == "zxc")
     }
+
+    @Test
+    fun tokenStoreLatestAndRoundtrip() {
+        TokenStore.clear()
+        assertTrue("пусто - нет последнего", TokenStore.latest(nowMs = 1_000) == null)
+        TokenStore.put("v1", PoToken("T1", expiresAtMs = 5_000))
+        assertTrue("последний виден", TokenStore.latest(nowMs = 1_000)?.value == "T1")
+        TokenStore.put("v2", PoToken("T2", expiresAtMs = 9_000))
+        assertTrue("последний обновился", TokenStore.latest(nowMs = 1_000)?.value == "T2")
+        val json = TokenStore.toJson()
+        TokenStore.clear()
+        TokenStore.fromJson(json)
+        assertEquals("после перезапуска оба", 2, TokenStore.size())
+        assertTrue("после перезапуска последний", TokenStore.latest(nowMs = 1_000)?.value == "T2")
+        assertTrue("просроченный последний не отдаётся", TokenStore.latest(nowMs = 10_000) == null)
+        TokenStore.clear()
+    }
 }

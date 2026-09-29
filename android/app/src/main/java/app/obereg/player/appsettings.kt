@@ -16,6 +16,7 @@ object AppSettings {
     private const val KEY_PROMO_ID = "promo.videoId"
     private const val KEY_PROMO_TITLE = "promo.title"
     private const val KEY_PROMO_POSITION = "promo.position"
+    private const val KEY_TOKENS = "tokens.state"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -25,6 +26,13 @@ object AppSettings {
 
     fun setTunnelDesired(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_TUNNEL, value).apply()
+    }
+
+    /** Состояние токенов (между запусками приложения). */
+    fun tokenState(context: Context): String = prefs(context).getString(KEY_TOKENS, "") ?: ""
+
+    fun saveTokenState(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_TOKENS, value).apply()
     }
 
     /** Идёт ли экран сервиса через наш туннель. */
