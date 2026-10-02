@@ -870,6 +870,105 @@ object TokenProbe {
         }
     }
 
+    /** Адреса обычной проверки (Create) — так её получает эталонный клиент. */
+    val WAA_CREATE_ENDPOINTS = listOf(
+        "https://jnn-pa.googleapis.com/\$rpc/google.internal.waa.v1.Waa/Create",
+        "https://www.youtube.com/api/jnn/v1/Create",
+    )
+
+    /** Разбор base64/base64url в байты — без платформенных зависимостей. */
+    fun base64ToBytes(raw: String): ByteArray {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        val clean = raw.replace('-', '+').replace('_', '/').replace('.', '=').filter { !it.isWhitespace() }
+        val out = java.io.ByteArrayOutputStream()
+        var buffer = 0
+        var bits = 0
+        for (ch in clean) {
+            if (ch == '=') break
+            val value = alphabet.indexOf(ch)
+            if (value < 0) continue
+            buffer = (buffer shl 6) or value
+            bits += 6
+            if (bits >= 8) {
+                bits -= 8
+                out.write((buffer shr bits) and 0xFF)
+            }
+        }
+        return out.toByteArray()
+    }
+
+    /** Расшифровка проверки: каждый байт сдвинут на 97 (как у эталона). */
+    fun descrambleChallenge(raw: String): String {
+        val bytes = base64ToBytes(raw)
+        val shifted = ByteArray(bytes.size)
+        for (i in bytes.indices) {
+            shifted[i] = (((bytes[i].toInt() and 0xFF) + 97) and 0xFF).toByte()
+        }
+        return String(shifted, Charsets.UTF_8)
+    }
+
+    /** Первая непустая строка из значения (строка или массив строк). */
+    fun pickFirstString(value: Any?): String? = when (value) {
+        is String -> value.takeIf { it.isNotEmpty() }
+        is org.json.JSONArray -> (0 until value.length())
+            .mapNotNull { value.opt(it) as? String }
+            .firstOrNull { it.isNotEmpty() }
+        else -> null
+    }
+
+    /**
+     * Разбор ответа обычной проверки (Create) в тот же вид, что и страничный:
+     * `{challenge: [...], botguardData: {program, interpreterSafeUrl}}`.
+     */
+    fun parseCreateResponse(jsonText: String?): JSONObject? {
+        if (jsonText.isNullOrEmpty()) return null
+        val arr = runCatching { org.json.JSONArray(jsonText) }.getOrNull() ?: return null
+        var challenge: org.json.JSONArray? = null
+        val scrambled = arr.opt(1)
+        if (scrambled is String && scrambled.length > 20) {
+            val decoded = runCatching { descrambleChallenge(scrambled) }.getOrNull()
+            challenge = runCatching { org.json.JSONArray(decoded.orEmpty()) }.getOrNull()
+        }
+        if (challenge == null) {
+            val first = arr.opt(0)
+            if (first is org.json.JSONArray) challenge = first
+        }
+        val ch = challenge ?: return null
+        val program = ch.opt(4)
+        if (program !is String || program.length < 100) return null
+        val globalName = (ch.opt(5) as? String).orEmpty()
+        val botguard = JSONObject()
+        botguard.put("program", program)
+        val interpreterUrl = pickFirstString(ch.opt(2))
+        if (interpreterUrl != null) {
+            botguard.put(
+                "interpreterSafeUrl",
+                JSONObject().put("privateDoNotAccessOrElseTrustedResourceUrlWrappedValue", interpreterUrl),
+            )
+        }
+        val safeScript = pickFirstString(ch.opt(1))
+        if (safeScript != null) botguard.put("safeScriptLength", safeScript.length)
+        val root = JSONObject()
+        root.put("challenge", ch)
+        root.put("botguardData", botguard)
+        root.put("source", "обычный путь (Create)")
+        if (globalName.isNotEmpty()) root.put("globalName", globalName)
+        return root
+    }
+
+    /** Сводка обычной проверки. */
+    fun summarizeCreate(root: JSONObject): String {
+        val botguard = root.optJSONObject("botguardData") ?: JSONObject()
+        val program = botguard.optString("program")
+        val globalName = root.optString("globalName")
+        val hasUrl = botguard.optJSONObject("interpreterSafeUrl") != null
+        return buildString {
+            append("проверка (обычный путь): программа ${program.length} символов")
+            if (globalName.isNotEmpty()) append(", имя: $globalName")
+            append(if (hasUrl) ", интерпретатор: адрес есть" else ", интерпретатор: адреса нет")
+        }
+    }
+
     /** Приводит адрес к полному виду: адрес без схемы (//host/…) → https. */
     fun normalizeInterpreterUrl(raw: String): String {
         if (raw.isEmpty() || raw == "null") return ""

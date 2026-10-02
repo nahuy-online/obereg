@@ -826,4 +826,25 @@ class YouTubeExtractorTest {
         assertEquals("1.5x", "1.5×", PlayerApi.speedLabel(1.5f))
         assertEquals("3x", "3×", PlayerApi.speedLabel(3.0f))
     }
+
+    @Test
+    fun createChallengeHelpers() {
+        val url = "//www.google.com/js/th/test.js"
+        val payload = "[null,null,[\"" + url + "\"],\"hash\",\"" + "x".repeat(200) + "\",\"vmok\",null,null]"
+        val bytes = payload.toByteArray(Charsets.UTF_8)
+        val scrambled = ByteArray(bytes.size)
+        for (i in bytes.indices) {
+            scrambled[i] = (((bytes[i].toInt() and 0xFF) - 97) and 0xFF).toByte()
+        }
+        val b64 = java.util.Base64.getEncoder().encodeToString(scrambled)
+        val response = """["msg","$b64"]"""
+        assertTrue("прямой сдвиг совпадает", TokenProbe.descrambleChallenge(b64) == payload)
+        val root = TokenProbe.parseCreateResponse(response)
+        assertTrue("разбор удался", root != null)
+        val summary = TokenProbe.summarizeCreate(root!!)
+        assertTrue("программа видна: $summary", summary.contains("200 символов"))
+        assertTrue("имя видно: $summary", summary.contains("vmok"))
+        assertTrue("адрес виден: $summary", summary.contains("адрес есть"))
+        assertTrue("битый ответ не ломает", TokenProbe.parseCreateResponse("не json") == null)
+    }
 }

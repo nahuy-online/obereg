@@ -103,11 +103,57 @@ class ProfileActivity : AppCompatActivity() {
             tokenWebView.loadUrl(TokenProbe.PROBE_URL)
         }
         findViewById<Button>(R.id.btnChallengeProbe).setOnClickListener {
-            // Шаг 2: страница сама обращается к сервису за проверкой, мы читаем ответ.
-            render("запрос проверки: обращаюсь из движка…")
-            DiagLog.add("токены: запрос проверки")
-            tokenWebView.evaluateJavascript(TokenProbe.challengeScript()) { _ -> }
-            pollChallenge(1)
+            render("запрос проверки (обычный путь):")
+            DiagLog.add("токены: запрос проверки (обычный путь)")
+            Thread {
+                var root: org.json.JSONObject? = null
+                val report = StringBuilder()
+                for (candidate in TokenProbe.WAA_CREATE_ENDPOINTS) {
+                    val host = candidate.substringAfter("://").substringBefore("/")
+                    var code = 0
+                    var text = ""
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(java.time.Duration.ofSeconds(15))
+                            .readTimeout(java.time.Duration.ofSeconds(25))
+                            .build()
+                        val body = org.json.JSONArray().put("O43z0dpjhgX20SCx4KAo").toString()
+                        val request = okhttp3.Request.Builder()
+                            .url(candidate)
+                            .post(body.toRequestBody("application/json+protobuf".toMediaType()))
+                            .header("x-goog-api-key", TokenProbe.WAA_API_KEY)
+                            .header("x-user-agent", "grpc-web-javascript/0.1")
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            code = response.code
+                            text = response.body?.string().orEmpty()
+                        }
+                    } catch (error: Exception) {
+                        report.append("; $host: сбой ${error.message?.take(60)}")
+                        continue
+                    }
+                    val parsed = TokenProbe.parseCreateResponse(text)
+                    report.append("; $host: HTTP $code, " + (if (parsed != null) "проверка получена" else "разбор не удался"))
+                    if (parsed != null) { root = parsed; break }
+                }
+                val parsed = root
+                runOnUiThread {
+                    DiagLog.add("токены: запрос проверки:$report")
+                    if (parsed == null) {
+                        DiagLog.add("токены: перехожу на страничный путь")
+                        tokenWebView.evaluateJavascript(TokenProbe.challengeScript()) { _ -> }
+                        pollChallenge(1)
+                        return@runOnUiThread
+                    }
+                    val escaped = org.json.JSONObject.quote(parsed.toString())
+                    tokenWebView.evaluateJavascript(
+                        "window.__oberegLastChallenge = $escaped; window.__oberegLastChallengeAt = Date.now(); 'ok'",
+                    ) { _ -> }
+                    val summary = TokenProbe.summarizeCreate(parsed)
+                    DiagLog.add("токены: $summary")
+                    render(summary)
+                }
+            }.start()
         }
         findViewById<Button>(R.id.btnChallengeDetail).setOnClickListener {
             render("разбор проверки: обращаюсь из движка…")
