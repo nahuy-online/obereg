@@ -171,78 +171,19 @@ class ProfileActivity : AppCompatActivity() {
             runTokenExchange()
         }
         findViewById<Button>(R.id.btnInterpreterLoad).setOnClickListener {
-            render("ищу адрес интерпретатора…")
+            render("Шаг 6 — поиск интерпретатора:")
             DiagLog.add("токены: поиск интерпретатора")
-            tokenWebView.evaluateJavascript(TokenProbe.interpreterFindScript()) { raw ->
-                val summary = TokenProbe.summarizeInterpreterFind(PlayerApi.decodeJsString(raw))
-                DiagLog.add("токены: $summary")
-                render(summary)
-                val root = runCatching {
-                    org.json.JSONObject(PlayerApi.decodeJsString(raw).orEmpty())
-                }.getOrNull()
-                val urls = root?.optJSONArray("urls")
-                var url = ""
-                if (urls != null && urls.length() > 0) { url = urls.optString(0) }
-                url = TokenProbe.normalizeInterpreterUrl(url)
-                if (url.isEmpty()) {
-                    DiagLog.add("токены: адрес интерпретатора не найден")
-                    return@evaluateJavascript
+            tokenWebView.evaluateJavascript("(window.__oberegLastChallenge || '')") { raw ->
+                val stored = PlayerApi.decodeJsString(raw)
+                val script = runCatching {
+                    org.json.JSONObject(stored.orEmpty())
+                }.getOrNull()?.optJSONObject("botguardData")?.optString("safeScript").orEmpty()
+                if (script.length > 5_000) {
+                    DiagLog.add("токены: интерпретатор взят из проверки (${script.length} символов)")
+                    injectInterpreter(script)
+                } else {
+                    findInterpreterBySearch()
                 }
-                Thread {
-                    var failure = ""
-                    val text = try {
-                        val client = okhttp3.OkHttpClient.Builder()
-                            .connectTimeout(java.time.Duration.ofSeconds(15))
-                            .readTimeout(java.time.Duration.ofSeconds(25))
-                            .build()
-                        val request = okhttp3.Request.Builder().url(url).build()
-                        client.newCall(request).execute().use { response ->
-                            if (response.isSuccessful) response.body?.string() else null
-                        }
-                    } catch (error: Exception) {
-                        failure = error.message.orEmpty()
-                        null
-                    }
-                    runOnUiThread {
-                        if (text.isNullOrEmpty()) {
-                            DiagLog.add("токены: интерпретатор не получен (сеть): ${failure.take(110)}")
-                            render("интерпретатор не получен (сеть): ${failure.take(110)}")
-                            return@runOnUiThread
-                        }
-                        val head = text.replace("\n", " ").take(160)
-                        DiagLog.add("токены: интерпретатор получен (${text.length} символов): $head")
-                        // Снимок имён до вложения — потом сравним, что принесла машина проверки.
-                        tokenWebView.evaluateJavascript(TokenProbe.armErrorsScript()) { _ -> }
-                        tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { _ -> }
-                        val escaped = org.json.JSONObject.quote(text)
-                        tokenWebView.evaluateJavascript(
-                            "window.__oberegInterpreterText = $escaped; 'ok'",
-                        ) { _ ->
-                            tokenWebView.evaluateJavascript(text) { _ ->
-                                tokenWebView.evaluateJavascript(TokenProbe.programCheckScript()) { checkRaw ->
-                                    val check = TokenProbe.summarizeProgramCheck(
-                                        PlayerApi.decodeJsString(checkRaw),
-                                    )
-                                    DiagLog.add("токены: интерпретатор вложен, $check")
-                                    tokenWebView.evaluateJavascript(TokenProbe.vmFindScript()) { vmRaw ->
-                                        val vmSummary = TokenProbe.summarizeVmFind(PlayerApi.decodeJsString(vmRaw))
-                                        DiagLog.add("токены: $vmSummary")
-                                        tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { diffRaw ->
-                                            val diff = TokenProbe.summarizeGlobalsDiff(PlayerApi.decodeJsString(diffRaw))
-                                            DiagLog.add("токены: $diff")
-                                            tokenWebView.evaluateJavascript(TokenProbe.errorsReportScript()) { errRaw ->
-                                                val errs = TokenProbe.summarizeErrors(PlayerApi.decodeJsString(errRaw))
-                                                if (errs.isNotEmpty()) DiagLog.add("токены: $errs")
-                                                val tail = if (errs.isEmpty()) "" else "; $errs"
-                                                render("интерпретатор: ${text.length} символов; $check; $vmSummary; $diff$tail")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }.start()
             }
         }
         findViewById<Button>(R.id.btnIntrospect).setOnClickListener {
@@ -466,6 +407,28 @@ class ProfileActivity : AppCompatActivity() {
                             PoToken(finalToken, System.currentTimeMillis() + ttl * 1000L),
                         )
                         AppSettings.saveTokenState(this, TokenStore.toJson())
+                        tokenWebView.evaluateJavascript("(window.__oberegLastChallenge || '')") { chalRaw ->
+                            val chalText = PlayerApi.decodeJsString(chalRaw).orEmpty()
+                            val chal = runCatching { org.json.JSONObject(chalText) }.getOrNull()
+                            val bg = chal?.optJSONObject("botguardData")
+                            val program = bg?.optString("program").orEmpty()
+                            val script = bg?.optString("safeScript").orEmpty()
+                            val globalName = chal?.optString("globalName").orEmpty()
+                            val forge = org.json.JSONObject()
+                                .put("program", program)
+                                .put("script", script)
+                                .put("globalName", globalName)
+                                .put("token", info.token.orEmpty())
+                                .put(
+                                    "expiresAtMs",
+                                    System.currentTimeMillis() +
+                                        (if (info.ttlSecs > 0) info.ttlSecs else 21600) * 1000L,
+                                )
+                            AppSettings.saveForgeState(this, forge.toString())
+                            DiagLog.add(
+                                "токены: данные для выдачи токенов сохранены (программа ${program.length}, скрипт ${script.length})",
+                            )
+                        }
                         DiagLog.add(
                             "токены: ${if (minted != null) "PO-токен" else "запасной токен"} сохранён (${finalToken.length} символов)",
                         )
@@ -486,6 +449,83 @@ class ProfileActivity : AppCompatActivity() {
                 }
             }
         }, 1_000)
+    }
+
+    /** Вложение интерпретатора в страницу и разбор результата. */
+    private fun injectInterpreter(text: String) {
+        val head = text.replace("\n", " ").take(160)
+        DiagLog.add("токены: интерпретатор получен (${text.length} символов): $head")
+        tokenWebView.evaluateJavascript(TokenProbe.armErrorsScript()) { _ -> }
+        tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { _ -> }
+        val escaped = org.json.JSONObject.quote(text)
+        tokenWebView.evaluateJavascript(
+            "window.__oberegInterpreterText = $escaped; 'ok'",
+        ) { _ ->
+            tokenWebView.evaluateJavascript(text) { _ ->
+                tokenWebView.evaluateJavascript(TokenProbe.programCheckScript()) { checkRaw ->
+                    val check = TokenProbe.summarizeProgramCheck(PlayerApi.decodeJsString(checkRaw))
+                    DiagLog.add("токены: интерпретатор вложен, $check")
+                    tokenWebView.evaluateJavascript(TokenProbe.vmFindScript()) { vmRaw ->
+                        val vmSummary = TokenProbe.summarizeVmFind(PlayerApi.decodeJsString(vmRaw))
+                        DiagLog.add("токены: $vmSummary")
+                        tokenWebView.evaluateJavascript(TokenProbe.globalsSnapshotScript()) { diffRaw ->
+                            val diff = TokenProbe.summarizeGlobalsDiff(PlayerApi.decodeJsString(diffRaw))
+                            DiagLog.add("токены: $diff")
+                            tokenWebView.evaluateJavascript(TokenProbe.errorsReportScript()) { errRaw ->
+                                val errs = TokenProbe.summarizeErrors(PlayerApi.decodeJsString(errRaw))
+                                if (errs.isNotEmpty()) DiagLog.add("токены: $errs")
+                                val tail = if (errs.isEmpty()) "" else "; $errs"
+                                render("интерпретатор: ${text.length} символов; $check; $vmSummary; $diff$tail")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Запасной путь: широкий поиск адреса интерпретатора на странице и загрузка по адресу. */
+    private fun findInterpreterBySearch() {
+        tokenWebView.evaluateJavascript(TokenProbe.interpreterFindScript()) { raw ->
+            val summary = TokenProbe.summarizeInterpreterFind(PlayerApi.decodeJsString(raw))
+            DiagLog.add("токены: $summary")
+            render(summary)
+            val root = runCatching {
+                org.json.JSONObject(PlayerApi.decodeJsString(raw).orEmpty())
+            }.getOrNull()
+            val urls = root?.optJSONArray("urls")
+            var url = ""
+            if (urls != null && urls.length() > 0) { url = urls.optString(0) }
+            url = TokenProbe.normalizeInterpreterUrl(url)
+            if (url.isEmpty()) {
+                DiagLog.add("токены: адрес интерпретатора не найден")
+                return@evaluateJavascript
+            }
+            Thread {
+                var failure = ""
+                val text = try {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(java.time.Duration.ofSeconds(15))
+                        .readTimeout(java.time.Duration.ofSeconds(25))
+                        .build()
+                    val request = okhttp3.Request.Builder().url(url).build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) response.body?.string() else null
+                    }
+                } catch (error: Exception) {
+                    failure = error.message.orEmpty()
+                    null
+                }
+                runOnUiThread {
+                    if (text.isNullOrEmpty()) {
+                        DiagLog.add("токены: интерпретатор не получен (сеть): ${failure.take(110)}")
+                        render("интерпретатор не получен (сеть): ${failure.take(110)}")
+                        return@runOnUiThread
+                    }
+                    injectInterpreter(text)
+                }
+            }.start()
+        }
     }
 
     /** Прогон машины проверки (шаг 7): ждём снимок из страницы. */

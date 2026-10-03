@@ -39,6 +39,8 @@ class PlayerActivity : AppCompatActivity() {
 
     private var player: ExoPlayer? = null
 private var playbackSpeed = 1.0f
+    private lateinit var forgeWebView: android.webkit.WebView
+    private var forgePageLatch: java.util.concurrent.CountDownLatch? = null
     private lateinit var playerView: PlayerView
     private lateinit var urlInput: EditText
     private lateinit var tunnelCheck: CheckBox
@@ -77,6 +79,19 @@ private var playbackSpeed = 1.0f
 
         urlInput.setText(presets.first())
 
+        forgeWebView = findViewById(R.id.forgeWebView)
+        forgeWebView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            userAgentString =
+                "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
+        forgeWebView.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                forgePageLatch?.countDown()
+            }
+        }
         findViewById<Button>(R.id.btnPlay).setOnClickListener { play(urlInput.text.toString().trim()) }
         findViewById<Button>(R.id.btnYouTubePlayer).setOnClickListener { playYouTube() }
         findViewById<Button>(R.id.btnCheckLogin).setOnClickListener {
@@ -274,11 +289,12 @@ private var playbackSpeed = 1.0f
         renderStatus("извлекаю поток для видео $videoId… (маршрут: ${routeLabel(proxy)})")
         Thread {
             // Любая непредвиденная ошибка должна стать понятной строкой, а не вылетом приложения.
+            val forgedToken = runCatching { ensureToken(videoId) }.getOrNull()
             val outcome = runCatching {
                 YouTubeExtractor(
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
-                    poTokenProvider = { (TokenStore.get(videoId) ?: TokenStore.latest())?.value },
+                    poTokenProvider = { forgedToken ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->
                 runOnUiThread {
@@ -399,6 +415,109 @@ private var playbackSpeed = 1.0f
         val videoId = currentVideoId ?: return url
         val pot = (TokenStore.get(videoId) ?: TokenStore.latest())?.value ?: return url
         return PlayerApi.appendPoToken(url, pot)
+    }
+
+    /**
+     * Готовит токен для видео: свой из кэша, иначе — выдаёт новый в скрытой странице
+     * (машина проверки + сохранённый токен целостности). Возвращает токен или null.
+     */
+    private fun ensureToken(videoId: String): String? {
+        TokenStore.get(videoId)?.value?.let { return it }
+        val forge = runCatching { org.json.JSONObject(AppSettings.forgeState(this)) }.getOrNull()
+            ?: return null
+        val program = forge.optString("program")
+        val script = forge.optString("script")
+        val token = forge.optString("token")
+        val expiresAt = forge.optLong("expiresAtMs")
+        if (program.length < 100 || token.length < 20 || System.currentTimeMillis() > expiresAt) {
+            DiagLog.add("выдача токена: данных нет или срок истёк — нужна цепочка в профиле")
+            return null
+        }
+        DiagLog.add("выдача токена: готовлю машину для $videoId")
+        if (!forgeLoadPage("https://www.youtube.com/embed/$videoId?enablejsapi=1&hl=ru")) {
+            DiagLog.add("выдача токена: страница не загрузилась")
+            return null
+        }
+        forgeJs(TokenProbe.armErrorsScript(), 5_000)
+        if (script.length > 5_000) {
+            val escapedScript = org.json.JSONObject.quote(script)
+            forgeJs("window.__oberegInterpreterText = $escapedScript; 'ok'", 8_000)
+            forgeJs(script, 15_000)
+        }
+        val challenge = org.json.JSONObject()
+            .put("botguardData", org.json.JSONObject().put("program", program))
+        val challengeEscaped = org.json.JSONObject.quote(challenge.toString())
+        forgeJs("window.__oberegLastChallenge = $challengeEscaped; 'ok'", 5_000)
+        forgeJs(TokenProbe.step7Script(), 8_000)
+        val snapshot = forgePoll("(window.__oberegStep7 || '')", 15_000) { it.contains("\"stage\":\"снимок\"") }
+        if (snapshot == null) {
+            val stage = forgeJs("(window.__oberegStep7 || '')", 4_000)
+            DiagLog.add("выдача токена: машина не готова (${(stage ?: "").take(120)})")
+            return null
+        }
+        val tokenEscaped = org.json.JSONObject.quote(token)
+        val videoEscaped = org.json.JSONObject.quote(videoId)
+        forgeJs(
+            "window.__oberegIntegrityToken = $tokenEscaped; window.__oberegPoVideo = $videoEscaped; 'ok'",
+            5_000,
+        )
+        forgeJs(TokenProbe.mintScript(), 8_000)
+        val minted = forgePoll("(window.__oberegPoToken || '')", 15_000) { it.contains("\"stage\":\"по-токен\"") || it.contains("сбой") || it.contains("нет-минтера") || it.contains("без-токена") }
+        val value = TokenProbe.mintValue(minted)
+        if (value == null) {
+            DiagLog.add("выдача токена: не удалось (${(minted ?: "").take(140)})")
+            return null
+        }
+        TokenStore.put(videoId, PoToken(value, System.currentTimeMillis() + 6 * 60 * 60 * 1000L))
+        AppSettings.saveTokenState(this, TokenStore.toJson())
+        DiagLog.add("выдача токена: получен для $videoId (${value.length} символов)")
+        return value
+    }
+
+    /** Загрузка страницы для выдачи токена (ждём завершения). */
+    private fun forgeLoadPage(url: String): Boolean {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        forgePageLatch = latch
+        runOnUiThread { forgeWebView.loadUrl(url) }
+        val ok = try {
+            latch.await(20, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (ignored: InterruptedException) {
+            false
+        }
+        forgePageLatch = null
+        return ok
+    }
+
+    /** Разовый вызов скрипта на скрытой странице (с ожиданием ответа). */
+    private fun forgeJs(script: String, timeoutMs: Long): String? {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val box = arrayOfNulls<String>(1)
+        runOnUiThread {
+            forgeWebView.evaluateJavascript(script) { raw ->
+                box[0] = PlayerApi.decodeJsString(raw)
+                latch.countDown()
+            }
+        }
+        return try {
+            if (latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) box[0] else null
+        } catch (ignored: InterruptedException) {
+            null
+        }
+    }
+
+    /** Опрос состояния на скрытой странице до выполнения условия. */
+    private fun forgePoll(script: String, timeoutMs: Long, done: (String) -> Boolean): String? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val value = forgeJs(script, 4_000)
+            if (!value.isNullOrEmpty() && done(value)) return value
+            try {
+                Thread.sleep(700)
+            } catch (ignored: InterruptedException) {
+                return null
+            }
+        }
+        return forgeJs(script, 4_000)
     }
 
     private fun stopPlayback() {

@@ -17,6 +17,7 @@ object AppSettings {
     private const val KEY_PROMO_TITLE = "promo.title"
     private const val KEY_PROMO_POSITION = "promo.position"
     private const val KEY_TOKENS = "tokens.state"
+    private const val KEY_FORGE = "forge.state"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -33,6 +34,13 @@ object AppSettings {
 
     fun saveTokenState(context: Context, value: String) {
         prefs(context).edit().putString(KEY_TOKENS, value).apply()
+    }
+
+    /** Данные для выдачи токенов в плеере (машина проверки и токен целостности). */
+    fun forgeState(context: Context): String = prefs(context).getString(KEY_FORGE, "") ?: ""
+
+    fun saveForgeState(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_FORGE, value).apply()
     }
 
     /** Идёт ли экран сервиса через наш туннель. */

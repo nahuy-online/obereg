@@ -947,7 +947,7 @@ object TokenProbe {
             )
         }
         val safeScript = pickFirstString(ch.opt(1))
-        if (safeScript != null) botguard.put("safeScriptLength", safeScript.length)
+        if (safeScript != null) botguard.put("safeScript", safeScript)
         val root = JSONObject()
         root.put("challenge", ch)
         root.put("botguardData", botguard)
