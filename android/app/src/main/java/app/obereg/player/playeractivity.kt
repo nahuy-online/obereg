@@ -226,6 +226,7 @@ private var playbackSpeed = 1.0f
         url: String,
         headers: Map<String, String> = emptyMap(),
         onFailure: (() -> Boolean)? = null,
+        potOverride: String? = null,
     ) {
         hideKeyboard()
         if (url.isEmpty()) {
@@ -252,7 +253,7 @@ private var playbackSpeed = 1.0f
         exo.stop()
         exo.clearMediaItems()
         onPlaybackFailure = onFailure
-        val playUrl = appendStoredPot(url, local)
+        val playUrl = if (potOverride != null && !local) PlayerApi.appendPoToken(url, potOverride) else appendStoredPot(url, local)
         currentStreamUrl = if (local) null else playUrl
         currentStreamHeaders = headers
 
@@ -438,6 +439,10 @@ private var playbackSpeed = 1.0f
             DiagLog.add("выдача токена: страница не загрузилась")
             return null
         }
+        val visitor = forgeJs(
+            "(function(){ try { return (window.ytcfg && ytcfg.get && ytcfg.get('VISITOR_DATA')) || ''; } catch (e) { return ''; } })()",
+            4_000,
+        ).orEmpty()
         forgeJs(TokenProbe.armErrorsScript(), 5_000)
         if (script.length > 5_000) {
             val escapedScript = org.json.JSONObject.quote(script)
@@ -461,6 +466,10 @@ private var playbackSpeed = 1.0f
             "window.__oberegIntegrityToken = $tokenEscaped; window.__oberegPoVideo = $videoEscaped; 'ok'",
             5_000,
         )
+        if (visitor.isNotEmpty()) {
+            val visitorEscaped = org.json.JSONObject.quote(visitor)
+            forgeJs("window.__oberegPoVisitor = $visitorEscaped; 'ok'", 4_000)
+        }
         forgeJs(TokenProbe.mintScript(), 8_000)
         val minted = forgePoll("(window.__oberegPoToken || '')", 15_000) { it.contains("\"stage\":\"по-токен\"") || it.contains("сбой") || it.contains("нет-минтера") || it.contains("без-токена") }
         val value = TokenProbe.mintValue(minted)
@@ -471,6 +480,12 @@ private var playbackSpeed = 1.0f
         TokenStore.put(videoId, PoToken(value, System.currentTimeMillis() + 6 * 60 * 60 * 1000L))
         AppSettings.saveTokenState(this, TokenStore.toJson())
         DiagLog.add("выдача токена: получен для $videoId (${value.length} символов)")
+        val visitorToken = TokenProbe.mintVisitorValue(minted)
+        if (visitorToken != null) {
+            TokenStore.put("__visitor", PoToken(visitorToken, System.currentTimeMillis() + 6 * 60 * 60 * 1000L))
+            AppSettings.saveTokenState(this, TokenStore.toJson())
+            DiagLog.add("выдача токена: гостевой токен получен (${visitorToken.length} символов)")
+        }
         return value
     }
 
@@ -576,44 +591,76 @@ private var playbackSpeed = 1.0f
         val url = currentStreamUrl ?: return
         val headers = currentStreamHeaders
         val proxyAddress = currentProxy()
+        val videoId = currentVideoId
         Thread {
-            val summary = try {
-                val builder = OkHttpClient.Builder()
-                    .connectTimeout(java.time.Duration.ofSeconds(15))
-                    .readTimeout(java.time.Duration.ofSeconds(20))
-                if (proxyAddress != null) {
-                    val parts = proxyAddress.split(":")
-                    if (parts.size == 2) {
-                        builder.proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress(parts[0], parts[1].toInt())))
-                    }
+            val base = url.replace(Regex("[&?]pot=[^&]*"), "")
+            val videoPot = videoId?.let { TokenStore.get(it)?.value }
+            val visitorPot = TokenStore.get("__visitor")?.value
+            val variants = mutableListOf<Triple<String, String, String?>>()
+            if (videoPot != null) variants += Triple("с токеном ролика", PlayerApi.appendPoToken(base, videoPot), videoPot)
+            if (visitorPot != null) variants += Triple("с гостевым токеном", PlayerApi.appendPoToken(base, visitorPot), visitorPot)
+            variants += Triple("без токена", base, null)
+            var foundUrl: String? = null
+            var foundPot: String? = null
+            val lines = mutableListOf<String>()
+            for ((label, candidate, potUsed) in variants) {
+                val summary = try {
+                    fetchHead(candidate, headers, proxyAddress)
+                } catch (error: Exception) {
+                    "сбой: ${error.message?.take(80)}"
                 }
-                val request = okhttp3.Request.Builder()
-                    .url(url)
-                    .header("Range", "bytes=0-1023")
-                    .apply { headers.forEach { (name, value) -> header(name, value) } }
-                    .build()
-                builder.build().newCall(request).execute().use { response ->
-                    val contentType = response.header("Content-Type")
-                    val stream = response.body?.byteStream()
-                    val head = ByteArray(16)
-                    val read = stream?.read(head) ?: -1
-                    val headBytes = if (read > 0) head.copyOf(read) else ByteArray(0)
-                    val looksTextual = contentType?.let {
-                        it.startsWith("text") || it.contains("json") || it.contains("html")
-                    } ?: false
-                    val text = if (looksTextual) String(headBytes, Charsets.UTF_8) else ""
-                    PlayerApi.responseFingerprint(response.code, contentType, headBytes) +
-                        if (text.isNotBlank()) " · текст: ${text.take(80)}" else ""
+                lines += "$label → $summary"
+                if (foundUrl == null && summary.startsWith("HTTP 200")) {
+                    foundUrl = candidate
+                    foundPot = potUsed
                 }
-            } catch (error: Exception) {
-                "проба не удалась: ${error.message?.take(120)}"
             }
-            val report = exitAddressReport(proxyAddress)
+            val chosenUrl = foundUrl
+            val chosenPot = foundPot
+            val report = lines.joinToString("; ")
+            val exit = exitAddressReport(proxyAddress)
             runOnUiThread {
-                DiagLog.add("проба ссылки: $summary")
-                renderStatus("проверка ссылки (${routeLabel(proxyAddress)}): $summary; $report")
+                DiagLog.add("проба ссылки: $report")
+                if (chosenUrl != null && chosenUrl != url) {
+                    DiagLog.add("проба: выбран рабочий вариант - играю")
+                    renderStatus("рабочий вариант найден: $report; $exit")
+                    play(chosenUrl, currentStreamHeaders, null, chosenPot)
+                } else {
+                    renderStatus("проверка ссылки (${routeLabel(proxyAddress)}): $report; $exit")
+                }
             }
         }.start()
+    }
+
+    /** Точечный запрос файла: код и тип ответа. */
+    private fun fetchHead(url: String, headers: Map<String, String>, proxyAddress: String?): String {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(15))
+            .readTimeout(java.time.Duration.ofSeconds(20))
+        if (proxyAddress != null) {
+            val parts = proxyAddress.split(":")
+            if (parts.size == 2) {
+                builder.proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress(parts[0], parts[1].toInt())))
+            }
+        }
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .header("Range", "bytes=0-1023")
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
+            .build()
+        builder.build().newCall(request).execute().use { response ->
+            val contentType = response.header("Content-Type")
+            val stream = response.body?.byteStream()
+            val head = ByteArray(16)
+            val read = stream?.read(head) ?: -1
+            val headBytes = if (read > 0) head.copyOf(read) else ByteArray(0)
+            val looksTextual = contentType?.let {
+                it.startsWith("text") || it.contains("json") || it.contains("html")
+            } ?: false
+            val text = if (looksTextual) String(headBytes, Charsets.UTF_8) else ""
+            return PlayerApi.responseFingerprint(response.code, contentType, headBytes) +
+                if (text.isNotBlank()) " - текст: ${text.take(80)}" else ""
+        }
     }
 
     /**

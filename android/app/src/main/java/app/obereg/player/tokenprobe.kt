@@ -797,6 +797,7 @@ object TokenProbe {
               return btoa(s).split('+').join('-').split('/').join('_');
             }
             var videoId = window.__oberegPoVideo || 'dQw4w9WgXcQ';
+            var visitor = window.__oberegPoVisitor || '';
             var attempts = 0;
             var waitMinter = function() {
               attempts++;
@@ -812,14 +813,32 @@ object TokenProbe {
               try { p = getMinter(b64ToU8(token)); } catch (e1) { put({ stage: 'сбой-минтера', error: String(e1).slice(0, 140) }); return; }
               Promise.resolve(p).then(function(mintCallback) {
                 if (typeof mintCallback !== 'function') { put({ stage: 'минтер-молчит' }); return; }
-                var r = null;
-                try { r = mintCallback(new TextEncoder().encode(videoId)); } catch (e2) { put({ stage: 'сбой-минта', error: String(e2).slice(0, 140) }); return; }
-                Promise.resolve(r).then(function(bytes) {
-                  if (!bytes || !bytes.length) { put({ stage: 'пустой-токен' }); return; }
-                  var poToken = u8ToB64Url(bytes);
-                  window.__oberegPoTokenValue = poToken;
-                  put({ stage: 'по-токен', video: videoId, len: poToken.length, token: poToken, head: poToken.slice(0, 60) });
-                }, function(e3) { put({ stage: 'сбой-минта', error: String(e3).slice(0, 140) }); });
+                var parts = { video: '', visitor: '' };
+                var jobs = [];
+                function mintOne(kind, binding) {
+                  var call = null;
+                  try { call = mintCallback(new TextEncoder().encode(binding)); } catch (e2) { call = null; }
+                  return Promise.resolve(call).then(function(bytes) {
+                    if (bytes && bytes.length) {
+                      var b64 = u8ToB64Url(bytes);
+                      if (kind === 'video') { parts.video = b64; } else { parts.visitor = b64; }
+                    }
+                  }, function() { });
+                }
+                if (videoId) { jobs.push(mintOne('video', videoId)); }
+                if (visitor) { jobs.push(mintOne('visitor', visitor)); }
+                Promise.all(jobs).then(function() {
+                  if (!parts.video && !parts.visitor) { put({ stage: 'пустой-токен' }); return; }
+                  window.__oberegPoTokenValue = parts.video || parts.visitor;
+                  put({
+                    stage: 'по-токен',
+                    video: videoId,
+                    len: (parts.video || '').length,
+                    token: parts.video,
+                    visitorToken: parts.visitor,
+                    visitor: visitor.slice(0, 24)
+                  });
+                });
               }, function(e4) { put({ stage: 'сбой-минтера', error: String(e4).slice(0, 140) }); });
             };
             waitMinter();
@@ -855,13 +874,23 @@ object TokenProbe {
         }
     }
 
+    /** Гостевой токен из ответа страницы (привязка к гостевым данным). */
+    fun mintVisitorValue(jsonText: String?): String? {
+        val root = runCatching { JSONObject(jsonText.orEmpty()) }.getOrNull() ?: return null
+        return if (root.optString("stage") == "по-токен") {
+            root.optString("visitorToken").takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+    }
+
     /** Сводка минта. */
     fun summarizeMint(jsonText: String?): String {
         if (jsonText.isNullOrEmpty()) return "минт: движок не ответил"
         val root = runCatching { JSONObject(jsonText) }.getOrNull()
             ?: return "минт не прочитан: ${jsonText.take(120)}"
         return when (val stage = root.optString("stage")) {
-            "по-токен" -> "PO-токен получен (${root.optInt("len")} символов) для ${root.optString("video")}; начало: ${root.optString("head").take(50)}"
+            "по-токен" -> "PO-токен получен (${root.optInt("len")} символов) для ${root.optString("video")}" + (if (root.optString("visitorToken").isNotEmpty()) ", гостевой: есть" else "") + "; начало: ${root.optString("head").take(50)}"
             "минтер-есть" -> "машина проверки отдала минтер"
             "нет-минтера" -> "минтер не появился (сигналов: ${root.optInt("signals")})"
             "без-токена" -> "токена целостности нет — сначала шаг 8"

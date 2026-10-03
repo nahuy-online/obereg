@@ -847,4 +847,13 @@ class YouTubeExtractorTest {
         assertTrue("адрес виден: $summary", summary.contains("адрес есть"))
         assertTrue("битый ответ не ломает", TokenProbe.parseCreateResponse("не json") == null)
     }
+
+    @Test
+    fun mintVisitorHelper() {
+        val ok = """{"stage":"по-токен","video":"v","len":3,"token":"a","visitorToken":"b","visitor":"Cgtpe"}"""
+        assertTrue("гостевой читается", TokenProbe.mintVisitorValue(ok) == "b")
+        val only = """{"stage":"по-токен","video":"v","len":3,"token":"a","visitorToken":""}"""
+        assertTrue("без гостевого - пусто", TokenProbe.mintVisitorValue(only) == null)
+        assertTrue("битый не ломает", TokenProbe.mintVisitorValue("не json") == null)
+    }
 }
