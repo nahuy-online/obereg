@@ -18,6 +18,7 @@ object AppSettings {
     private const val KEY_PROMO_POSITION = "promo.position"
     private const val KEY_TOKENS = "tokens.state"
     private const val KEY_FORGE = "forge.state"
+    private const val KEY_VISITOR = "visitor.data"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -41,6 +42,13 @@ object AppSettings {
 
     fun saveForgeState(context: Context, value: String) {
         prefs(context).edit().putString(KEY_FORGE, value).apply()
+    }
+
+    /** Гостевые данные (visitor) для запросов к сервису. */
+    fun visitorData(context: Context): String = prefs(context).getString(KEY_VISITOR, "") ?: ""
+
+    fun saveVisitorData(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_VISITOR, value).apply()
     }
 
     /** Идёт ли экран сервиса через наш туннель. */

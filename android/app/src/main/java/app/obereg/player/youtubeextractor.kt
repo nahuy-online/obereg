@@ -167,7 +167,7 @@ object PlayerApi {
     )
 
     /** Тело запроса: контекст клиента + идентификатор видео. */
-    fun requestBody(profile: ClientProfile, videoId: String): String {
+    fun requestBody(profile: ClientProfile, videoId: String, visitorData: String? = null): String {
         val client = JSONObject()
             .put("clientName", profile.clientName)
             .put("clientVersion", profile.clientVersion)
@@ -176,6 +176,7 @@ object PlayerApi {
         for ((name, value) in profile.extraContext) {
             client.put(name, value)
         }
+        if (!visitorData.isNullOrEmpty()) client.put("visitorData", visitorData)
         val context = JSONObject().put("client", client)
         if (profile.embedUrl != null) {
             // Встроенным клиентам нужно указать, откуда видео «встроено».
@@ -195,9 +196,10 @@ object PlayerApi {
         videoId: String,
         apiKey: String,
         poToken: String? = null,
+        visitorData: String? = null,
     ): RequestSpec = RequestSpec(
         url = appendPoToken("$ENDPOINT?key=$apiKey&prettyPrint=false", poToken),
-        body = withPoToken(requestBody(profile, videoId), poToken),
+        body = withPoToken(requestBody(profile, videoId, visitorData), poToken),
         headers = mapOf(
             "User-Agent" to profile.userAgent,
             "Content-Type" to "application/json",
@@ -573,6 +575,7 @@ class YouTubeExtractor(
     private val cookieProvider: (() -> String?)? = null,
     /** Токен подтверждения клиента, если движок уже успел его добыть (шаг P3). */
     private val poTokenProvider: (() -> String?)? = null,
+    private val visitorDataProvider: (() -> String?)? = null,
 ) {
 
     /** Итог попыток: пригодные варианты по порядку предпочтения и причины отказов. */
@@ -611,6 +614,7 @@ class YouTubeExtractor(
             } else {
                 val result = interpret(CoreHolder.analyzePlayerResponse(playerResponse))
                 if (result.isUsable) {
+                    notes += "годный поток: страница"
                     usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
                 } else {
                     notes += "ответ плеера: ${PlayerApi.reasonOf(result)}"
@@ -636,6 +640,7 @@ class YouTubeExtractor(
                     } else {
                         val result = interpret(CoreHolder.analyzePlayerResponse(mobileResponse))
                         if (result.isUsable) {
+                    notes += "годный поток: мобильная страница"
                             usable += PlayerApi.withAgent(result, PlayerApi.BROWSER_USER_AGENT)
                         } else {
                             notes += "мобильная страница: ${PlayerApi.reasonOf(result)}"
@@ -655,8 +660,16 @@ class YouTubeExtractor(
                     } else {
                         profile
                     }
-                    when (val result = attempt(tuned, videoId, apiKey)) {
-                        is ExtractResult.Success, is ExtractResult.SeparateStreams -> usable += result
+                    var result = attempt(tuned, videoId, apiKey)
+                    if (result is ExtractResult.Failure && tuned.label == "WEB") {
+                        notes += "WEB с токеном: ${PlayerApi.reasonOf(result).take(120)}"
+                        result = attempt(tuned, videoId, apiKey, useToken = false)
+                    }
+                    when (result) {
+                        is ExtractResult.Success, is ExtractResult.SeparateStreams -> {
+                            notes += "годный поток: ${tuned.label}"
+                            usable += result
+                        }
                         else -> notes += "${tuned.label}: ${PlayerApi.reasonOf(result)}"
                     }
                     // Двух запасных вариантов достаточно: больше — лишние запросы к сервису.
@@ -676,13 +689,22 @@ class YouTubeExtractor(
     }
 
     /** Одна попытка конкретным профилем клиента. */
-    private fun attempt(profile: ClientProfile, videoId: String, apiKey: String): ExtractResult {
-        val token = poTokenProvider?.let { provider -> runCatching(provider).getOrNull() }
-            ?.takeIf { it.isNotBlank() }
+    private fun attempt(
+        profile: ClientProfile,
+        videoId: String,
+        apiKey: String,
+        useToken: Boolean = true,
+    ): ExtractResult {
+        val token = if (useToken) {
+            poTokenProvider?.let { provider -> runCatching(provider).getOrNull() }?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
         if (token != null) {
             DiagLog.add("токен подтверждения: есть (${token.length} символов)")
         }
-        val spec = PlayerApi.spec(profile, videoId, apiKey, token)
+        val visitor = visitorDataProvider?.let { provider -> runCatching(provider).getOrNull() }
+        val spec = PlayerApi.spec(profile, videoId, apiKey, token, visitor)
         val raw = when (val fetched = post(spec)) {
             is Fetch.Failed -> return ExtractResult.Failure(fetched.reason)
             is Fetch.Ok -> fetched.text

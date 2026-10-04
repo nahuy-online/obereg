@@ -296,6 +296,7 @@ private var playbackSpeed = 1.0f
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
                     poTokenProvider = { forgedToken ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value },
+                    visitorDataProvider = { AppSettings.visitorData(this) },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->
                 runOnUiThread {
@@ -309,7 +310,7 @@ private var playbackSpeed = 1.0f
             runOnUiThread {
                 val first = outcome.usable.firstOrNull()
                 DiagLog.add(
-                    "извлечение: пригодных ${outcome.usable.size}; заметки: ${outcome.notes.joinToString(" | ").take(300)}",
+                    "извлечение: пригодных ${outcome.usable.size}; заметки: ${outcome.notes.joinToString(" | ").take(700)}",
                 )
                 outcome.usable.forEachIndexed { index, variant ->
                     val url = when (variant) {
@@ -444,6 +445,7 @@ private var playbackSpeed = 1.0f
             "(function(){ try { return (window.ytcfg && ytcfg.get && ytcfg.get('VISITOR_DATA')) || ''; } catch (e) { return ''; } })()",
             4_000,
         ).orEmpty()
+        if (visitor.isNotEmpty()) AppSettings.saveVisitorData(this, visitor)
         forgeJs(TokenProbe.armErrorsScript(), 5_000)
         if (script.length > 5_000) {
             val escapedScript = org.json.JSONObject.quote(script)
