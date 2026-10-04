@@ -41,6 +41,7 @@ class PlayerActivity : AppCompatActivity() {
 private var playbackSpeed = 1.0f
     private lateinit var forgeWebView: android.webkit.WebView
     private var forgePageLatch: java.util.concurrent.CountDownLatch? = null
+    private var engineResponse: String? = null
     private lateinit var playerView: PlayerView
     private lateinit var urlInput: EditText
     private lateinit var tunnelCheck: CheckBox
@@ -297,6 +298,7 @@ private var playbackSpeed = 1.0f
                     cookieProvider = { webViewCookies() },
                     poTokenProvider = { forgedToken ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value },
                     visitorDataProvider = { AppSettings.visitorData(this) },
+                    pageResponseProvider = { engineResponse },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->
                 runOnUiThread {
@@ -425,7 +427,6 @@ private var playbackSpeed = 1.0f
      */
     private fun ensureToken(videoId: String): String? {
         val existing = TokenStore.get(videoId)?.value
-        if (existing != null && TokenStore.get("__visitor")?.value != null) return existing
         val forge = runCatching { org.json.JSONObject(AppSettings.forgeState(this)) }.getOrNull()
             ?: return null
         val program = forge.optString("program")
@@ -437,7 +438,7 @@ private var playbackSpeed = 1.0f
             return null
         }
         DiagLog.add("выдача токена: готовлю машину для $videoId")
-        if (!forgeLoadPage("https://www.youtube.com/embed/$videoId?enablejsapi=1&hl=ru")) {
+        if (!forgeLoadPage("https://www.youtube.com/watch?v=$videoId&hl=ru")) {
             DiagLog.add("выдача токена: страница не загрузилась")
             return null
         }
@@ -446,6 +447,19 @@ private var playbackSpeed = 1.0f
             4_000,
         ).orEmpty()
         if (visitor.isNotEmpty()) AppSettings.saveVisitorData(this, visitor)
+        val engine = forgeJs(
+            "(function(){ try { return JSON.stringify(window.ytInitialPlayerResponse || null); } catch (e) { return ''; } })()",
+            6_000,
+        )
+        engineResponse = if (!engine.isNullOrEmpty() && engine != "null" && engine.length > 500) engine else null
+        DiagLog.add(
+            if (engineResponse != null) {
+                "движок страницы: ответ плеера получен (${engineResponse!!.length} символов)"
+            } else {
+                "движок страницы: ответ плеера не найден"
+            },
+        )
+        if (existing != null && TokenStore.get("__visitor")?.value != null) return existing
         forgeJs(TokenProbe.armErrorsScript(), 5_000)
         if (script.length > 5_000) {
             val escapedScript = org.json.JSONObject.quote(script)

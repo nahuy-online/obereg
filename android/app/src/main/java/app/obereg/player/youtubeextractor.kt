@@ -197,17 +197,25 @@ object PlayerApi {
         apiKey: String,
         poToken: String? = null,
         visitorData: String? = null,
-    ): RequestSpec = RequestSpec(
-        url = appendPoToken("$ENDPOINT?key=$apiKey&prettyPrint=false", poToken),
-        body = withPoToken(requestBody(profile, videoId, visitorData), poToken),
-        headers = mapOf(
+    ): RequestSpec {
+        val headers = mutableMapOf(
             "User-Agent" to profile.userAgent,
             "Content-Type" to "application/json",
             "X-Youtube-Client-Name" to profile.clientHeaderName,
             "X-Youtube-Client-Version" to profile.clientVersion,
             "Accept-Language" to "ru-RU,ru;q=0.9",
-        ),
-    )
+        )
+        if (!visitorData.isNullOrEmpty()) headers["X-Goog-Visitor-Id"] = visitorData
+        if (profile.label == "WEB") {
+            headers["Origin"] = "https://www.youtube.com"
+            headers["Referer"] = "https://www.youtube.com/"
+        }
+        return RequestSpec(
+            url = appendPoToken("$ENDPOINT?key=$apiKey&prettyPrint=false", poToken),
+            body = withPoToken(requestBody(profile, videoId, visitorData), poToken),
+            headers = headers,
+        )
+    }
 
     /** Адрес страницы просмотра для видео. */
     fun watchUrl(videoId: String): String = "$WATCH_ENDPOINT?v=$videoId&hl=ru"
@@ -576,6 +584,7 @@ class YouTubeExtractor(
     /** Токен подтверждения клиента, если движок уже успел его добыть (шаг P3). */
     private val poTokenProvider: (() -> String?)? = null,
     private val visitorDataProvider: (() -> String?)? = null,
+    private val pageResponseProvider: (() -> String?)? = null,
 ) {
 
     /** Итог попыток: пригодные варианты по порядку предпочтения и причины отказов. */
@@ -596,6 +605,16 @@ class YouTubeExtractor(
     fun resolveDetailed(videoId: String): ResolveOutcome {
         val usable = mutableListOf<ExtractResult>()
         val notes = mutableListOf<String>()
+        val engineResponse = pageResponseProvider?.let { provider -> runCatching(provider).getOrNull() }
+        if (!engineResponse.isNullOrEmpty() && engineResponse.length > 500) {
+            val engineResult = interpret(CoreHolder.analyzePlayerResponse(engineResponse))
+            if (engineResult.isUsable) {
+                notes += "годный поток: движок страницы"
+                usable += PlayerApi.withAgent(engineResult, PlayerApi.BROWSER_USER_AGENT)
+            } else {
+                notes += "движок страницы: ${PlayerApi.reasonOf(engineResult)}"
+            }
+        }
 
         val page = when (val fetched = fetch(PlayerApi.watchUrl(videoId), PlayerApi.BROWSER_USER_AGENT)) {
             is Fetch.Failed -> null.also { notes += "страница: ${fetched.reason}" }
