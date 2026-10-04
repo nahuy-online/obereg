@@ -116,7 +116,17 @@ class YouTubeActivity : AppCompatActivity() {
                 if (PlayerApi.looksLikeStream(url)) {
                     mediaRequests++
                     // Пишем сам адрес: без него не понять, почему поток не классифицируется.
-                    DiagLog.add("медиа-запрос #$mediaRequests: ${url.take(220)}")
+                    val pagePot = PlayerApi.potFromUrl(url)
+                    if (pagePot != null && currentVideoId.isNotEmpty()) {
+                        TokenStore.put(
+                            currentVideoId,
+                            PoToken(pagePot, System.currentTimeMillis() + 6 * 60 * 60 * 1000L),
+                        )
+                        AppSettings.saveTokenState(this@YouTubeActivity, TokenStore.toJson())
+                        DiagLog.add("медиа-поток #$mediaRequests: снят токен страницы (${pagePot.length} символов) для $currentVideoId")
+                    } else {
+                        DiagLog.add("медиа-запрос #$mediaRequests: ${url.take(220)}")
+                    }
                 }
                 when (PlayerApi.streamKind(url)) {
                     "video" -> {

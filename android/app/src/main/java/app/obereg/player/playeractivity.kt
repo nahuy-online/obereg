@@ -423,7 +423,8 @@ private var playbackSpeed = 1.0f
      * (машина проверки + сохранённый токен целостности). Возвращает токен или null.
      */
     private fun ensureToken(videoId: String): String? {
-        TokenStore.get(videoId)?.value?.let { return it }
+        val existing = TokenStore.get(videoId)?.value
+        if (existing != null && TokenStore.get("__visitor")?.value != null) return existing
         val forge = runCatching { org.json.JSONObject(AppSettings.forgeState(this)) }.getOrNull()
             ?: return null
         val program = forge.optString("program")

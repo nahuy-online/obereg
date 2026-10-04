@@ -856,4 +856,11 @@ class YouTubeExtractorTest {
         assertTrue("без гостевого - пусто", TokenProbe.mintVisitorValue(only) == null)
         assertTrue("битый не ломает", TokenProbe.mintVisitorValue("не json") == null)
     }
+
+    @Test
+    fun potFromUrlWorks() {
+        assertEquals("среди параметров", "P123", PlayerApi.potFromUrl("https://x/videoplayback?a=1&pot=P123&b=2"))
+        assertEquals("первым параметром", "P_2-x", PlayerApi.potFromUrl("https://x/videoplayback?pot=P_2-x"))
+        assertEquals("без токена - null", null, PlayerApi.potFromUrl("https://x/videoplayback?a=1"))
+    }
 }

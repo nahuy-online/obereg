@@ -407,6 +407,15 @@ class ProfileActivity : AppCompatActivity() {
                             PoToken(finalToken, System.currentTimeMillis() + ttl * 1000L),
                         )
                         AppSettings.saveTokenState(this, TokenStore.toJson())
+                        val visitorToken = TokenProbe.mintVisitorValue(result)
+                        if (visitorToken != null) {
+                            TokenStore.put(
+                                "__visitor",
+                                PoToken(visitorToken, System.currentTimeMillis() + 6 * 60 * 60 * 1000L),
+                            )
+                            AppSettings.saveTokenState(this, TokenStore.toJson())
+                            DiagLog.add("токены: гостевой токен сохранён (${visitorToken.length} символов)")
+                        }
                         tokenWebView.evaluateJavascript("(window.__oberegLastChallenge || '')") { chalRaw ->
                             val chalText = PlayerApi.decodeJsString(chalRaw).orEmpty()
                             val chal = runCatching { org.json.JSONObject(chalText) }.getOrNull()

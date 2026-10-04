@@ -360,6 +360,12 @@ object PlayerApi {
     fun speedLabel(speed: Float): String =
         if (speed == speed.toInt().toFloat()) "${speed.toInt()}×" else "$speed×"
 
+    /** Достаёт значение параметра pot из адреса потока (или null, если его нет). */
+    fun potFromUrl(url: String): String? {
+        val match = Regex("[?&]pot=([^&]+)").find(url) ?: return null
+        return match.groupValues[1].takeIf { it.isNotEmpty() }
+    }
+
     fun appendPoToken(url: String, token: String?): String {
         if (token.isNullOrBlank() || url.isBlank()) return url
         if (url.contains("pot=")) return url
