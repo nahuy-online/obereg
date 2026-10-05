@@ -291,26 +291,32 @@ class YouTubeExtractorTest {
 
     @Test
     fun embeddedProfilesGoFirstAndCarryEmbedUrl() {
-        // С 2024 года мобильные клиенты обязаны предоставлять токен подтверждения (PO token),
-        // поэтому первыми идут встроенные и клиент очков — им токен не нужен.
+        // С 2026 года главный клиент - visionos: он отдаёт поток без токенов подтверждения.
+        // Встроенные профили по-прежнему должны нести thirdParty.embedUrl.
         val labels = PlayerApi.profiles.map { it.label }
-        assertTrue("первым должен идти ТВ-клиент: $labels", labels.first() == "TV_EMBEDDED")
-        assertTrue("вторым — клиент очков (не требует токена): $labels", labels[1] == "ANDROID_VR")
-        assertTrue("третьим — веб-встроенный: $labels", labels[2] == "WEB_EMBEDDED")
+        assertTrue("Главный клиент (visionos) должен идти первым: $labels", labels.first() == "VISIONOS")
+        assertTrue("visionos идёт до веб-клиентов: $labels", labels.indexOf("VISIONOS") < labels.indexOf("WEB"))
         for (profile in PlayerApi.profiles.filter { it.embedUrl != null }) {
             val body = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123").body
             assertTrue(
-                "${profile.label}: встроенный клиент должен сообщать thirdParty.embedUrl",
+                "${profile.label}: встроенный профиль должен содержать thirdParty.embedUrl",
                 body.contains("\"embedUrl\"") && body.contains("thirdParty"),
             )
         }
-        for (profile in PlayerApi.profiles.filter { it.embedUrl == null }) {
-            val body = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123").body
-            assertFalse(
-                "${profile.label}: обычному клиенту thirdParty не нужен",
-                body.contains("thirdParty"),
-            )
-        }
+    }
+
+    @Test
+    fun visionosProfileIsPotlessMainClient() {
+        // Урок 2026: главный гостевой клиент - visionos; токены подтверждения ему не нужны,
+        // и заголовок номера клиента у него 101.
+        val visionos = PlayerApi.profiles.first { it.label == "VISIONOS" }
+        assertEquals("101", visionos.clientHeaderName)
+        assertNull("visionos не встроенный", visionos.embedUrl)
+        val body = PlayerApi.spec(visionos, "dQw4w9WgXcQ", "TEST-KEY-123").body
+        assertFalse(
+            "без токена тело не должно нести serviceIntegrityDimensions",
+            body.contains("serviceIntegrityDimensions"),
+        )
     }
 
     @Test

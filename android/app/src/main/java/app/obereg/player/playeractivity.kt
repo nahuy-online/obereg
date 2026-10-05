@@ -328,10 +328,14 @@ private var playbackSpeed = 1.0f
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
                     poTokenProvider = { label ->
-                        if (label == "ANDROID" || label == "IOS") {
-                            TokenStore.get(videoId)?.value ?: TokenStore.latest()?.value
-                        } else {
-                            TokenStore.get("__visitor")?.value?.takeIf { it.isNotEmpty() }
+                        when {
+                            // visionos работает без токенов подтверждения - пусть идёт чистым.
+                            label == "VISIONOS" -> null
+                            // Мобильным клиентам нужен токен ролика в теле запроса плеера.
+                            label == "ANDROID" || label == "IOS" || label == "ANDROID_VR" -> {
+                                TokenStore.get(videoId)?.value ?: TokenStore.latest()?.value
+                            }
+                            else -> TokenStore.get("__visitor")?.value?.takeIf { it.isNotEmpty() }
                                 ?: forgedToken
                                 ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value
                         }

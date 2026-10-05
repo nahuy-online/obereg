@@ -109,6 +109,95 @@ object PlayerApi {
      */
     val profiles: List<ClientProfile> = listOf(
         ClientProfile(
+            label = "VISIONOS",
+            clientName = "VISIONOS",
+            clientVersion = "1.02",
+            userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 " +
+                "(KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+            clientHeaderName = "101",
+            extraContext = mapOf(
+                "deviceMake" to "Apple",
+                "deviceModel" to "RealityDevice17,1",
+                "osName" to "visionOS",
+                "osVersion" to "26.5.23O471",
+            ),
+        ),
+        ClientProfile(
+            label = "ANDROID",
+            clientName = "ANDROID",
+            clientVersion = "21.26.364",
+            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+            clientHeaderName = "3",
+            extraContext = mapOf(
+                "androidSdkVersion" to 30,
+                "osName" to "Android",
+                "osVersion" to "11",
+            ),
+        ),
+        ClientProfile(
+            label = "IOS",
+            clientName = "IOS",
+            clientVersion = "21.26.4",
+            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+            clientHeaderName = "5",
+            extraContext = mapOf(
+                "deviceMake" to "Apple",
+                "deviceModel" to "iPhone16,2",
+                "osName" to "iPhone",
+                "osVersion" to "18.3.2.22D82",
+            ),
+        ),
+        ClientProfile(
+            label = "TV",
+            clientName = "TVHTML5",
+            clientVersion = "7.20260707.07.00",
+            userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold " +
+                "(unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
+            clientHeaderName = "7",
+            extraContext = emptyMap(),
+        ),
+        ClientProfile(
+            label = "MWEB",
+            clientName = "MWEB",
+            clientVersion = "2.20260708.05.00",
+            userAgent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 " +
+                "(KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)",
+            clientHeaderName = "2",
+            extraContext = emptyMap(),
+        ),
+        ClientProfile(
+            label = "WEB",
+            clientName = "WEB",
+            clientVersion = "2.20260708.00.00",
+            userAgent = BROWSER_USER_AGENT,
+            clientHeaderName = "1",
+            extraContext = emptyMap(),
+        ),
+        ClientProfile(
+            label = "ANDROID_VR",
+            clientName = "ANDROID_VR",
+            clientVersion = "1.65.10",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; " +
+                "eureka-user Build/SQ3A.220605.009.A1) gzip",
+            clientHeaderName = "28",
+            extraContext = mapOf(
+                "androidSdkVersion" to 32,
+                "deviceMake" to "Oculus",
+                "deviceModel" to "Quest 3",
+                "osName" to "Android",
+                "osVersion" to "12L",
+            ),
+        ),
+        ClientProfile(
+            label = "WEB_EMBEDDED",
+            clientName = "WEB_EMBEDDED_PLAYER",
+            clientVersion = "2.20260708.00.00",
+            userAgent = BROWSER_USER_AGENT,
+            clientHeaderName = "56",
+            extraContext = emptyMap(),
+            embedUrl = "https://www.youtube.com/",
+        ),
+        ClientProfile(
             label = "TV_EMBEDDED",
             clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
             clientVersion = "2.0",
@@ -117,75 +206,6 @@ object PlayerApi {
             clientHeaderName = "85",
             extraContext = emptyMap(),
             embedUrl = "https://www.youtube.com/",
-        ),
-        ClientProfile(
-            label = "ANDROID_VR",
-            clientName = "ANDROID_VR",
-            clientVersion = "1.60.19",
-            userAgent = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; GB) gzip",
-            clientHeaderName = "28",
-            extraContext = mapOf(
-                "androidSdkVersion" to 32,
-                "deviceMake" to "Oculus",
-                "deviceModel" to "Quest 3",
-                "osName" to "Android",
-                "osVersion" to "12",
-            ),
-        ),
-        ClientProfile(
-            label = "WEB_EMBEDDED",
-            clientName = "WEB_EMBEDDED_PLAYER",
-            clientVersion = "1.20240723.01.00",
-            userAgent = BROWSER_USER_AGENT,
-            clientHeaderName = "56",
-            extraContext = emptyMap(),
-            embedUrl = "https://www.youtube.com/",
-        ),
-        ClientProfile(
-            label = "ANDROID",
-            clientName = "ANDROID",
-            clientVersion = "19.09.37",
-            userAgent = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-            clientHeaderName = "3",
-            extraContext = mapOf("androidSdkVersion" to 30),
-        ),
-        ClientProfile(
-            label = "IOS",
-            clientName = "IOS",
-            clientVersion = "19.09.3",
-            userAgent = "com.google.ios.youtube/19.09.3 (iPhone16,2; U; CPU iOS 17_4_1 like Mac OS X)",
-            clientHeaderName = "5",
-            extraContext = mapOf(
-                "deviceModel" to "iPhone16,2",
-                "osName" to "iPhone",
-                "osVersion" to "17.4.1.21E236",
-            ),
-        ),
-        ClientProfile(
-            label = "WEB",
-            clientName = "WEB",
-            clientVersion = "2.20240926.01.00",
-            userAgent = BROWSER_USER_AGENT,
-            clientHeaderName = "1",
-            extraContext = emptyMap(),
-        ),
-        ClientProfile(
-            label = "TV",
-            clientName = "TVHTML5",
-            clientVersion = "7.20250101.09.00",
-            userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold " +
-                "(unlike Gecko) v8/8.8.278.8-jit gles Starboard/17",
-            clientHeaderName = "7",
-            extraContext = emptyMap(),
-        ),
-        ClientProfile(
-            label = "MWEB",
-            clientName = "MWEB",
-            clientVersion = "2.20250101.01.00",
-            userAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-            clientHeaderName = "2",
-            extraContext = emptyMap(),
         ),
     )
 
@@ -234,7 +254,7 @@ object PlayerApi {
             headers["Referer"] = "https://www.youtube.com/"
         }
         return RequestSpec(
-            url = appendPoToken("$ENDPOINT?key=$apiKey&prettyPrint=false", poToken),
+            url = "$ENDPOINT?key=$apiKey&prettyPrint=false",
             body = withPoToken(requestBody(profile, videoId, visitorData), poToken),
             headers = headers,
         )
