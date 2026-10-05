@@ -399,6 +399,17 @@ object PlayerApi {
         return match.groupValues[1].takeIf { it.isNotEmpty() }
     }
 
+    /** Сводка параметров адреса: имена и длины значений - чтобы сравнивать доставку. */
+    fun paramSummary(url: String): String {
+        val query = url.substringAfter('?', "")
+        if (query.isEmpty()) return "параметров нет"
+        return query.split('&').joinToString(", ") { part ->
+            val name = part.substringBefore('=')
+            val value = part.substringAfter('=', "")
+            if (value.length > 24) "$name(${value.length})" else name
+        }.take(900)
+    }
+
     fun appendPoToken(url: String, token: String?): String {
         if (token.isNullOrBlank() || url.isBlank()) return url
         if (url.contains("pot=")) return url

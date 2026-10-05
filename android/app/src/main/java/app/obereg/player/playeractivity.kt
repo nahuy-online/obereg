@@ -42,6 +42,7 @@ private var playbackSpeed = 1.0f
     private lateinit var forgeWebView: android.webkit.WebView
     private var forgePageLatch: java.util.concurrent.CountDownLatch? = null
     private var engineResponse: String? = null
+    private var engineUrlLogged = false
     private lateinit var playerView: PlayerView
     private lateinit var urlInput: EditText
     private lateinit var tunnelCheck: CheckBox
@@ -111,6 +112,11 @@ private var playbackSpeed = 1.0f
                         AppSettings.saveTokenState(this@PlayerActivity, TokenStore.toJson())
                         DiagLog.add("движок-поток: снят токен страницы (${pot.length} символов) для $videoId")
                     } else {
+                        if (!engineUrlLogged) {
+                            engineUrlLogged = true
+                            DiagLog.add("движок-поток полностью: ${url.take(1100)}")
+                        }
+                        DiagLog.add("движок-поток: параметры - ${PlayerApi.paramSummary(url)}")
                         DiagLog.add("движок-поток: ${url.take(140)} … ${url.takeLast(140)}")
                     }
                 }

@@ -870,4 +870,11 @@ class YouTubeExtractorTest {
         assertTrue("MWEB есть", PlayerApi.profiles.any { it.label == "MWEB" })
         assertTrue("WEB остался", PlayerApi.profiles.any { it.label == "WEB" })
     }
+
+    @Test
+    fun paramSummaryWorks() {
+        val s = PlayerApi.paramSummary("https://x/videoplayback?a=1&pot=abcdefghijklmnopqrstuvwxyz012&b=2")
+        assertTrue("короткие имена: $s", s.contains("a") && s.contains("b"))
+        assertTrue("длинное значение с длиной: $s", s.contains("pot(29)"))
+    }
 }
