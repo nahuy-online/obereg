@@ -657,13 +657,17 @@ private var playbackSpeed = 1.0f
             if (visitorPot != null) variants += Triple("с гостевым токеном", PlayerApi.appendPoToken(base, visitorPot), visitorPot)
             if (videoPot != null) variants += Triple("с токеном ролика", PlayerApi.appendPoToken(base, videoPot), videoPot)
             variants += Triple("без токена", base, null)
+            if (visitorPot != null) {
+                variants += Triple("гость + десктопный UA", PlayerApi.appendPoToken(base, visitorPot), visitorPot)
+            }
             var foundUrl: String? = null
             var foundPot: String? = null
             DiagLog.add("проба: начал проверку вариантов")
             val lines = mutableListOf<String>()
             for ((label, candidate, potUsed) in variants) {
+                val usedHeaders = if (label.contains("десктопный")) headers + mapOf("User-Agent" to PlayerApi.BROWSER_USER_AGENT) else headers
                 val summary = try {
-                    fetchHead(candidate, headers, proxyAddress)
+                    fetchHead(candidate, usedHeaders, proxyAddress)
                 } catch (error: Exception) {
                     "сбой: ${error.message?.take(80)}"
                 }

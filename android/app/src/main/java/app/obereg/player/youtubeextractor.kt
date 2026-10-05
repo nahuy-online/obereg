@@ -97,6 +97,11 @@ object PlayerApi {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 
+/** Мобильный браузерный UA (страница движка работает с ним; ссылки c=MWEB ждут его). */
+    const val MOBILE_USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+
     /**
      * Порядок попыток: сначала встроенные клиенты — им не нужен токен подтверждения
      * (PO token), который мобильные клиенты обязаны предоставлять с 2024 года;
@@ -628,7 +633,7 @@ class YouTubeExtractor(
             val engineResult = interpret(CoreHolder.analyzePlayerResponse(engineResponse))
             if (engineResult.isUsable) {
                 notes += "годный поток: движок страницы"
-                usable += PlayerApi.withAgent(engineResult, PlayerApi.BROWSER_USER_AGENT)
+                usable += PlayerApi.withAgent(engineResult, PlayerApi.MOBILE_USER_AGENT)
             } else {
                 notes += "движок страницы: ${PlayerApi.reasonOf(engineResult)}"
             }
