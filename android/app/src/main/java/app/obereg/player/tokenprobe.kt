@@ -775,6 +775,65 @@ object TokenProbe {
      * Ждёт от машины проверки функцию-минтер, отдаёт ей токен целостности
      * и получает готовый PO-токен для выбранного видео.
      */
+    /**
+     * Запрос плеера изнутри самой страницы (канал доверенного сеанса) для visionos.
+     *
+     * Страница YouTube уже прошла проверку подлинности (машина бот-защиты работает на ней),
+     * поэтому запрос из её же контекста не должен получать отказ «войдите в аккаунт».
+     * Результат кладётся в window.__oberegPagePlayer: состояние в state, ответ в text.
+     */
+    fun pagePlayerScript(videoId: String): String {
+        val vid = org.json.JSONObject.quote(videoId)
+        return """
+            (function(){
+              try {
+                var vid = $vid;
+                if (window.__oberegPagePlayer && window.__oberegPagePlayer.videoId === vid && window.__oberegPagePlayer.text) {
+                  return 'уже';
+                }
+                window.__oberegPagePlayer = { videoId: vid, state: 'ждём' };
+                var key = '';
+                try { key = ytcfg.get('INNERTUBE_API_KEY'); } catch (e) { }
+                if (!key) {
+                  var m = document.documentElement.innerHTML.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
+                  if (m) { key = m[1]; }
+                }
+                if (!key) { window.__oberegPagePlayer = { videoId: vid, state: 'ошибка' }; return 'нет ключа'; }
+                var vis = '';
+                try { vis = ytcfg.get('VISITOR_DATA') || ''; } catch (e) { }
+                var headers = { 'Content-Type': 'application/json' };
+                if (vis) { headers['X-Goog-Visitor-Id'] = vis; }
+                var body = {
+                  'context': { 'client': {
+                    'clientName': 'VISIONOS',
+                    'clientVersion': '1.02',
+                    'deviceMake': 'Apple',
+                    'deviceModel': 'RealityDevice17,1',
+                    'userAgent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
+                    'osName': 'visionOS',
+                    'osVersion': '26.5.23O471'
+                  } },
+                  'videoId': vid,
+                  'contentCheckOk': true,
+                  'racyCheckOk': true,
+                  'playbackContext': { 'contentPlaybackContext': { 'html5Preference': 'HTML5_PREF_WANTS' } }
+                };
+                fetch('/youtubei/v1/player?key=' + key + '&prettyPrint=false', {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: headers,
+                  body: JSON.stringify(body)
+                }).then(function(r){ return r.text(); }).then(function(t){
+                  window.__oberegPagePlayer = { videoId: vid, state: 'готово', text: t };
+                }).catch(function(e){
+                  window.__oberegPagePlayer = { videoId: vid, state: 'ошибка' };
+                });
+                return 'запущено';
+              } catch (e) { return 'сбой'; }
+            })()
+        """.trimIndent()
+    }
+
     fun mintScript(): String = """
         (function(){
           function put(obj) { try { window.__oberegPoToken = JSON.stringify(obj); } catch (e) { } }

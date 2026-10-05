@@ -285,6 +285,25 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun playerBodyCarriesPlaybackContextAndContextUserAgent() {
+        // Урок 2026: тело запроса плеера несёт playbackContext, а контекст клиента - userAgent.
+        val visionos = PlayerApi.profiles.first { it.label == "VISIONOS" }
+        val body = PlayerApi.spec(visionos, "dQw4w9WgXcQ", "TEST-KEY-123").body
+        assertTrue("в теле должен быть playbackContext", body.contains("playbackContext"))
+        assertTrue("в теле должен быть html5Preference", body.contains("HTML5_PREF_WANTS"))
+        assertTrue("в контексте должен быть userAgent", body.contains("\"userAgent\""))
+    }
+
+    @Test
+    fun apiHeadersCarryOriginForAllClients() {
+        // У эталона Origin есть у всех клиентов - даже у мобильных.
+        for (profile in PlayerApi.profiles) {
+            val spec = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123")
+            assertEquals("${profile.label}: Origin", "https://www.youtube.com", spec.headers["Origin"])
+        }
+    }
+
+    @Test
     fun watchUrlCarriesVideoId() {
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=ru", PlayerApi.watchUrl("dQw4w9WgXcQ"))
     }

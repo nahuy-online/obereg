@@ -219,6 +219,8 @@ object PlayerApi {
         for ((name, value) in profile.extraContext) {
             client.put(name, value)
         }
+        // Эталон кладёт UA и в контекст клиента, а не только в заголовок.
+        client.put("userAgent", profile.userAgent)
         if (!visitorData.isNullOrEmpty()) client.put("visitorData", visitorData)
         val context = JSONObject().put("client", client)
         if (profile.embedUrl != null) {
@@ -228,6 +230,7 @@ object PlayerApi {
         return JSONObject()
             .put("context", context)
             .put("videoId", videoId)
+            .put("playbackContext", JSONObject().put("contentPlaybackContext", JSONObject().put("html5Preference", "HTML5_PREF_WANTS")))
             .put("contentCheckOk", true)
             .put("racyCheckOk", true)
             .toString()
@@ -249,8 +252,8 @@ object PlayerApi {
             "Accept-Language" to "ru-RU,ru;q=0.9",
         )
         if (!visitorData.isNullOrEmpty()) headers["X-Goog-Visitor-Id"] = visitorData
+        headers["Origin"] = "https://www.youtube.com"
         if (profile.label == "WEB") {
-            headers["Origin"] = "https://www.youtube.com"
             headers["Referer"] = "https://www.youtube.com/"
         }
         return RequestSpec(
@@ -639,6 +642,7 @@ class YouTubeExtractor(
     private val poTokenProvider: ((String) -> String?)? = null,
     private val visitorDataProvider: (() -> String?)? = null,
     private val pageResponseProvider: (() -> String?)? = null,
+    private val pagePlayerProvider: (() -> String?)? = null,
 ) {
 
     /** Итог попыток: пригодные варианты по порядку предпочтения и причины отказов. */
@@ -667,6 +671,20 @@ class YouTubeExtractor(
                 usable += PlayerApi.withAgent(engineResult, PlayerApi.MOBILE_USER_AGENT)
             } else {
                 notes += "движок страницы: ${PlayerApi.reasonOf(engineResult)}"
+            }
+        }
+
+        // Доверенный канал: плеер-запрос изнутри самой страницы.
+        val pagePlayerResponse = pagePlayerProvider?.let { provider -> runCatching(provider).getOrNull() }
+        if (!pagePlayerResponse.isNullOrEmpty() && pagePlayerResponse.length > 500) {
+            val pagePlayerResult = interpret(CoreHolder.analyzePlayerResponse(pagePlayerResponse))
+            if (pagePlayerResult.isUsable) {
+                notes += "годный поток: запрос со страницы"
+                val visionosUa = PlayerApi.profiles.firstOrNull { it.label == "VISIONOS" }?.userAgent
+                    ?: PlayerApi.BROWSER_USER_AGENT
+                usable += PlayerApi.withAgent(pagePlayerResult, visionosUa)
+            } else {
+                notes += "запрос со страницы: ${PlayerApi.reasonOf(pagePlayerResult).take(110)}"
             }
         }
 

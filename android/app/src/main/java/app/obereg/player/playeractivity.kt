@@ -341,7 +341,8 @@ private var playbackSpeed = 1.0f
                         }
                     },
                     visitorDataProvider = { AppSettings.visitorData(this) },
-                    pageResponseProvider = { engineResponse },
+                    pageResponseProvider = { engineResponse },
+                    pagePlayerProvider = { pagePlayerFetch(videoId) },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->
                 runOnUiThread {
@@ -601,6 +602,37 @@ private var playbackSpeed = 1.0f
         }
         return forgeJs(script, 4_000)
     }
+    /**
+     * Плеер-запрос изнутри самой страницы (доверенный канал).
+     *
+     * Возвращает ответ плеера, полученный страницей из её же контекста, или null.
+     */
+    private fun pagePlayerFetch(videoId: String): String? {
+        val started = runCatching { forgeJs(TokenProbe.pagePlayerScript(videoId), 6_000) }.getOrNull()
+        val ready = if (started != null && started.contains("уже")) {
+            "готово"
+        } else {
+            forgePoll(
+                "(window.__oberegPagePlayer ? (window.__oberegPagePlayer.state || '') : '')",
+                20_000,
+            ) { it.contains("готово") || it.contains("ошибка") }
+        }
+        if (ready == null || !ready.contains("готово")) {
+            DiagLog.add("запрос со страницы: не дождались (${(ready ?: "").take(40)})")
+            return null
+        }
+        val text = forgeJs(
+            "(window.__oberegPagePlayer && window.__oberegPagePlayer.text) ? window.__oberegPagePlayer.text : ''",
+            10_000,
+        )
+        if (text.isNullOrEmpty() || text.length < 500) {
+            DiagLog.add("запрос со страницы: ответ пуст или короток (${(text ?: "").length})")
+            return null
+        }
+        DiagLog.add("запрос со страницы: ответ ${text.length} символов")
+        return text
+    }
+
 
     private fun stopPlayback() {
         player?.stop()
