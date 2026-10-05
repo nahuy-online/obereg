@@ -22,6 +22,7 @@
     <string name="youtube_open_app">В приложении YouTube</string>
     <string name="youtube_open_site">Сайт YouTube</string>
     <string name="youtube_check_access">Проверка связи</string>
+    <string name="youtube_speed">Скорость: 1×</string>
     <string name="youtube_embed">Встроенный плеер</string>
     <string name="youtube_search_hint">Поиск видео в YouTube</string>
     <string name="youtube_search">Найти</string>

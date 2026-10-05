@@ -62,6 +62,47 @@ class YouTubeActivity : AppCompatActivity() {
     private var routeNote: String = ""
     private var currentVideoId: String = ""
     private var useEmbed: Boolean = false
+    private var ytSpeed = 1.0f
+
+    /** Тюнинг страницы: пропуск рекламы и удержание выбранной скорости. */
+    private fun injectTuning(view: android.webkit.WebView?) {
+        view ?: return
+        val script = tuningScript.replace("__RATE__", ytSpeed.toString())
+        view.evaluateJavascript(script) { raw ->
+            val answer = PlayerApi.decodeJsString(raw)
+            if (answer == "готово") DiagLog.add("ютуб-экран: тюнинг установлен")
+        }
+    }
+
+    private val tuningScript = """
+        (function(){
+          try {
+            if (window.__oberegTuned) { window.__oberegRate = __RATE__; return 'уже'; }
+            window.__oberegTuned = true;
+            window.__oberegRate = __RATE__;
+            setInterval(function(){
+              try {
+                var player = document.getElementById('movie_player');
+                var video = document.querySelector('video');
+                if (!video) { return; }
+                var ad = player && player.classList.contains('ad-showing');
+                if (ad) {
+                  var skip = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+                  if (skip) { skip.click(); }
+                  else if (video.duration && isFinite(video.duration)) { video.currentTime = video.duration; }
+                  video.muted = true;
+                } else {
+                  if (video.muted) { video.muted = false; }
+                  if (Math.abs(video.playbackRate - window.__oberegRate) > 0.01) {
+                    video.playbackRate = window.__oberegRate;
+                  }
+                }
+              } catch (e) { }
+            }, 400);
+            return 'готово';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
 
     private val presets = listOf(
         "aqz-KE-bpKQ" to "Big Buck Bunny (Blender)",
@@ -148,6 +189,7 @@ class YouTubeActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 render("загружено: ${url ?: "—"}")
+                injectTuning(view)
             }
 
             override fun onReceivedError(
@@ -269,6 +311,15 @@ class YouTubeActivity : AppCompatActivity() {
             }
             DiagLog.add("отчёт скопирован (${report.length} символов)")
             render("отчёт скопирован (${report.length} символов) — вставьте его в чат разработчику")
+        }
+
+        findViewById<Button>(R.id.btnYtSpeed).setOnClickListener {
+            ytSpeed = PlayerApi.nextSpeed(ytSpeed)
+            val speedLabel = PlayerApi.speedLabel(ytSpeed)
+            findViewById<Button>(R.id.btnYtSpeed).text = "Скорость: $speedLabel"
+            webView.evaluateJavascript("window.__oberegRate = $ytSpeed; 'ok'") { _ -> }
+            DiagLog.add("ютуб-экран: скорость $speedLabel")
+            render("ютуб-экран: скорость: $speedLabel")
         }
         findViewById<Button>(R.id.btnBackToApp).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnPresetYt1).setOnClickListener {
