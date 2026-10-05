@@ -87,10 +87,34 @@ private var playbackSpeed = 1.0f
             userAgentString =
                 "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            mediaPlaybackRequiresUserGesture = false
         }
         forgeWebView.webViewClient = object : android.webkit.WebViewClient() {
             override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                 forgePageLatch?.countDown()
+            }
+
+            override fun shouldInterceptRequest(
+                view: android.webkit.WebView?,
+                request: android.webkit.WebResourceRequest?,
+            ): android.webkit.WebResourceResponse? {
+                val url = request?.url?.toString().orEmpty()
+                if (PlayerApi.looksLikeStream(url)) {
+                    StreamCatcher.lastEngineStream = url
+                    val pot = PlayerApi.potFromUrl(url)
+                    val videoId = currentVideoId
+                    if (pot != null && !videoId.isNullOrEmpty()) {
+                        TokenStore.put(
+                            videoId,
+                            PoToken(pot, System.currentTimeMillis() + 6 * 60 * 60 * 1000L),
+                        )
+                        AppSettings.saveTokenState(this@PlayerActivity, TokenStore.toJson())
+                        DiagLog.add("движок-поток: снят токен страницы (${pot.length} символов) для $videoId")
+                    } else {
+                        DiagLog.add("движок-поток: ${url.take(140)} … ${url.takeLast(140)}")
+                    }
+                }
+                return null
             }
         }
         findViewById<Button>(R.id.btnPlay).setOnClickListener { play(urlInput.text.toString().trim()) }
@@ -287,6 +311,7 @@ private var playbackSpeed = 1.0f
             renderStatus("это не похоже на ссылку или идентификатор YouTube")
             return
         }
+        currentVideoId = videoId
         val proxy = currentProxy()
         renderStatus("извлекаю поток для видео $videoId… (маршрут: ${routeLabel(proxy)})")
         Thread {
@@ -448,7 +473,12 @@ private var playbackSpeed = 1.0f
             return null
         }
         DiagLog.add("выдача токена: готовлю машину для $videoId")
-        if (!forgeLoadPage("https://www.youtube.com/watch?v=$videoId&hl=ru")) {
+        var engineLoaded = forgeLoadPage("https://www.youtube.com/watch?v=$videoId&hl=ru")
+        if (!engineLoaded) {
+            DiagLog.add("движок страницы: повтор загрузки")
+            engineLoaded = forgeLoadPage("https://www.youtube.com/watch?v=$videoId&hl=ru")
+        }
+        if (!engineLoaded) {
             DiagLog.add("выдача токена: страница не загрузилась")
             return null
         }
@@ -469,6 +499,7 @@ private var playbackSpeed = 1.0f
                 "движок страницы: ответ плеера не найден"
             },
         )
+        forgeJs("(function(){ setTimeout(function(){ try { document.querySelectorAll('video').forEach(function(v){ v.pause(); }); } catch (e) { } }, 12000); return 'armed'; })()", 3_000)
         forgeJs(TokenProbe.armErrorsScript(), 5_000)
         if (script.length > 5_000) {
             val escapedScript = org.json.JSONObject.quote(script)
@@ -645,7 +676,7 @@ private var playbackSpeed = 1.0f
             }
             val chosenUrl = foundUrl
             val chosenPot = foundPot
-            val pageStream = StreamCatcher.lastPageStream
+            val pageStream = StreamCatcher.lastEngineStream ?: StreamCatcher.lastPageStream
             if (pageStream != null) {
                 val pageSummary = try {
                     fetchHead(pageStream, headers, proxyAddress)

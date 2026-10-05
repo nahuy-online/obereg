@@ -14,7 +14,7 @@ import java.util.Locale
  */
 object DiagLog {
 
-    private const val MAX_LINES = 400
+    private const val MAX_LINES = 700
 
     private val lines = ArrayDeque<String>()
 
@@ -23,7 +23,7 @@ object DiagLog {
     /** Добавить запись (безопасно: журнал не должен ломать основной поток приложения). */
     fun add(message: String) {
         runCatching {
-            val trimmed = message.replace("\n", " ⏎ ").take(400)
+            val trimmed = message.replace("\n", " ⏎ ").take(1200)
             lines.addLast("${time.format(Date())}  $trimmed")
             while (lines.size > MAX_LINES) {
                 lines.removeFirst()

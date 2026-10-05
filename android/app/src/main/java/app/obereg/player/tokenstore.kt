@@ -103,4 +103,8 @@ object TokenStore {
 object StreamCatcher {
     @Volatile
     var lastPageStream: String? = null
+
+    /** Последний адрес потока, пойманный со скрытой страницы движка. */
+    @Volatile
+    var lastEngineStream: String? = null
 }
