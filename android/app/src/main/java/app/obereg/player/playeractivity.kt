@@ -152,6 +152,18 @@ private var playbackSpeed = 1.0f
             DiagLog.add("скорость воспроизведения: $label")
             renderStatus("скорость: $label")
         }
+        findViewById<Button>(R.id.btnEngineWatch).setOnClickListener {
+            val engineVideo = currentVideoId ?: YouTubeExtractor.videoIdFrom(urlInput.text.toString().trim())
+            if (engineVideo == null) {
+                renderStatus("сначала введите ссылку на ролик или откройте его из ленты")
+            } else {
+                currentVideoId = engineVideo
+                DiagLog.add("движок-плеер: запуск для $engineVideo")
+                startActivity(
+                    android.content.Intent(this, EnginePlayerActivity::class.java).putExtra("videoId", engineVideo),
+                )
+            }
+        }
         findViewById<Button>(R.id.btnPreset1).setOnClickListener {
             urlInput.setText(presets[0])
             play(presets[0])

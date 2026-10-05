@@ -49,6 +49,13 @@
             android:text="@string/player_speed" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnEngineWatch"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:text="Играть через движок (без рекламы, до 3×)" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
