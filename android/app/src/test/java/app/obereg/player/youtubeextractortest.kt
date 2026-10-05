@@ -313,6 +313,16 @@ class YouTubeExtractorTest {
         assertFalse(PlayerApi.isAttestationRefusal("Видео недоступно"))
     }
     @Test
+    fun authHeaderIsComputedFromSapisidCookies() {
+        // Для вошедшего сеанса запрос подписывается SAPISIDHASH - как у эталона.
+        val auth = PlayerApi.authHeader("SAPISID=abc123; __Secure-3PAPISID=zzz; VISITOR_INFO1_LIVE=vv")
+        assertTrue("подпись должна быть: $auth", auth != null && auth.startsWith("SAPISIDHASH "))
+        assertTrue("у подписи две части: $auth", auth!!.split(" ")[1].contains("_"))
+        assertTrue("подпись 3P тоже есть: $auth", auth.contains("SAPISID3PHASH "))
+        assertNull("без печенек подписи нет", PlayerApi.authHeader("VISITOR_INFO1_LIVE=vv"))
+        assertNull("пусто - не ошибка", PlayerApi.authHeader(null))
+    }
+    @Test
     fun watchUrlCarriesVideoId() {
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=ru", PlayerApi.watchUrl("dQw4w9WgXcQ"))
     }

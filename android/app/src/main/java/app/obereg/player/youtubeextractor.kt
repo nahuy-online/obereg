@@ -155,6 +155,13 @@ object PlayerApi {
                 "(unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
             clientHeaderName = "7",
             extraContext = emptyMap(),
+        ),        ClientProfile(
+            label = "TV_DOWNGRADED",
+            clientName = "TVHTML5",
+            clientVersion = "5.20260707",
+            userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+            clientHeaderName = "7",
+            extraContext = emptyMap(),
         ),
         ClientProfile(
             label = "MWEB",
@@ -243,6 +250,7 @@ object PlayerApi {
         apiKey: String,
         poToken: String? = null,
         visitorData: String? = null,
+        auth: String? = null,
     ): RequestSpec {
         val headers = mutableMapOf(
             "User-Agent" to profile.userAgent,
@@ -255,6 +263,10 @@ object PlayerApi {
         headers["Origin"] = "https://www.youtube.com"
         if (profile.label == "WEB") {
             headers["Referer"] = "https://www.youtube.com/"
+        }
+        if (auth != null) {
+            headers["Authorization"] = auth
+            headers["X-Origin"] = "https://www.youtube.com"
         }
         return RequestSpec(
             url = "$ENDPOINT?key=$apiKey&prettyPrint=false",
@@ -354,6 +366,31 @@ object PlayerApi {
      * которого нет в открытых плеерах (потому «не распознан контейнер»).
      * Честная подсказка важнее технического кода.
      */
+    /** Заголовок входа из cookie сеанса (как у эталона): SAPISIDHASH из SAPISID-печенек. */
+    fun authHeader(cookies: String?): String? {
+        val jar = mutableMapOf<String, String>()
+        cookies?.split(';')?.forEach { part ->
+            val idx = part.indexOf('=')
+            if (idx > 0) jar[part.substring(0, idx).trim()] = part.substring(idx + 1).trim()
+        }
+        val sapisid = jar["SAPISID"] ?: jar["__Secure-3PAPISID"]
+        val oneP = jar["__Secure-1PAPISID"]
+        val threeP = jar["__Secure-3PAPISID"]
+        val parts = mutableListOf<String>()
+        if (!sapisid.isNullOrEmpty()) parts += sidHash("SAPISIDHASH", sapisid)
+        if (!oneP.isNullOrEmpty()) parts += sidHash("SAPISID1PHASH", oneP)
+        if (!threeP.isNullOrEmpty()) parts += sidHash("SAPISID3PHASH", threeP)
+        return if (parts.isEmpty()) null else parts.joinToString(" ")
+    }
+
+    private fun sidHash(scheme: String, sid: String): String {
+        val ts = System.currentTimeMillis() / 1000
+        val origin = "https://www.youtube.com"
+        val digest = java.security.MessageDigest.getInstance("SHA-1")
+            .digest("$ts $sid $origin".toByteArray())
+        val hex = digest.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        return "$scheme ${ts}_$hex"
+    }
     /** Мигающий отказ: сервис требует подтверждения («подтвердить, что вы не бот»). */
     fun isAttestationRefusal(reason: String): Boolean =
         reason.contains("подтвердить", ignoreCase = true) ||
@@ -750,7 +787,24 @@ class YouTubeExtractor(
                 notes += "на странице нет ключа интерфейса"
             } else {
                 val pageVersion = PlayerApi.extractClientVersion(page)
-                for (profile in PlayerApi.profiles) {
+                val cookiesNow = cookieHeader()
+                val loggedIn = PlayerApi.hasLoginCookies(cookiesNow)
+                val order = if (loggedIn) {
+                    // Для вошедшего сеанса эталон поднимает web_embedded и tv_downgraded.
+                    PlayerApi.profiles.sortedBy {
+                        when (it.label) {
+                            "TV_DOWNGRADED" -> 0
+                            "WEB_EMBEDDED" -> 1
+                            "VISIONOS" -> 2
+                            "ANDROID" -> 3
+                            "WEB" -> 4
+                            else -> 5
+                        }
+                    }
+                } else {
+                    PlayerApi.profiles
+                }
+                for (profile in order) {
                     val tuned = if (profile.label == "WEB" && pageVersion != null) {
                         profile.copy(clientVersion = pageVersion)
                     } else {
@@ -811,7 +865,8 @@ class YouTubeExtractor(
             DiagLog.add("токен подтверждения: есть (${token.length} символов)")
         }
         val visitor = visitorDataProvider?.let { provider -> runCatching(provider).getOrNull() }
-        val spec = PlayerApi.spec(profile, videoId, apiKey, token, visitor)
+        val auth = PlayerApi.authHeader(cookieHeader())
+        val spec = PlayerApi.spec(profile, videoId, apiKey, token, visitor, auth)
         val raw = when (val fetched = post(spec)) {
             is Fetch.Failed -> return ExtractResult.Failure(fetched.reason)
             is Fetch.Ok -> fetched.text
