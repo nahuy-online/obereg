@@ -296,7 +296,11 @@ private var playbackSpeed = 1.0f
                 YouTubeExtractor(
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
-                    poTokenProvider = { forgedToken ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value },
+                    poTokenProvider = {
+                        TokenStore.get("__visitor")?.value?.takeIf { it.isNotEmpty() }
+                            ?: forgedToken
+                            ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value
+                    },
                     visitorDataProvider = { AppSettings.visitorData(this) },
                     pageResponseProvider = { engineResponse },
                 ).resolveDetailed(videoId)
@@ -417,7 +421,9 @@ private var playbackSpeed = 1.0f
     private fun appendStoredPot(url: String, local: Boolean): String {
         if (local) return url
         val videoId = currentVideoId ?: return url
-        val pot = (TokenStore.get(videoId) ?: TokenStore.latest())?.value ?: return url
+        val pot = TokenStore.get("__visitor")?.value?.takeIf { it.isNotEmpty() }
+            ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value
+            ?: return url
         return PlayerApi.appendPoToken(url, pot)
     }
 
@@ -613,8 +619,8 @@ private var playbackSpeed = 1.0f
             val videoPot = videoId?.let { TokenStore.get(it)?.value }
             val visitorPot = TokenStore.get("__visitor")?.value
             val variants = mutableListOf<Triple<String, String, String?>>()
-            if (videoPot != null) variants += Triple("с токеном ролика", PlayerApi.appendPoToken(base, videoPot), videoPot)
             if (visitorPot != null) variants += Triple("с гостевым токеном", PlayerApi.appendPoToken(base, visitorPot), visitorPot)
+            if (videoPot != null) variants += Triple("с токеном ролика", PlayerApi.appendPoToken(base, videoPot), videoPot)
             variants += Triple("без токена", base, null)
             var foundUrl: String? = null
             var foundPot: String? = null
