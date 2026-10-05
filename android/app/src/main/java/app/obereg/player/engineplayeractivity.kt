@@ -19,6 +19,7 @@ class EnginePlayerActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var statusView: TextView
     private var speedIndex = 0
+    private var reloadTried = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,8 +34,26 @@ class EnginePlayerActivity : AppCompatActivity() {
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
+                reloadTried = false
                 injectTuning(view)
                 render("движок-плеер: страница готова")
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: android.webkit.WebResourceRequest?,
+                error: android.webkit.WebResourceError?,
+            ) {
+                val main = request?.isForMainFrame == true
+                val description = error?.description?.toString() ?: "ошибка сети"
+                DiagLog.add(
+                    "движок-плеер: ошибка загрузки ($description)" + if (main) " [главный документ]" else "",
+                )
+                if (main && !reloadTried) {
+                    reloadTried = true
+                    render("движок-плеер: сеть капризничает - пробую ещё раз")
+                    view?.reload()
+                }
             }
         }
         if (videoId.isEmpty()) {

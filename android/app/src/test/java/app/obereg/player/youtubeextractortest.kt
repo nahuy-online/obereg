@@ -131,7 +131,7 @@ class YouTubeExtractorTest {
         // Код ошибки сам по себе ничего не говорит пользователю — подсказка говорит.
         val http = PlayerApi.playbackHint("ERROR_CODE_IO_BAD_HTTP_STATUS")
         assertTrue("подсказка про отказ сервиса: $http", http.contains("подтверждением клиента"))
-        assertTrue("ведёт на рабочий путь", http.contains("Экран YouTube"))
+        assertTrue("ведёт на рабочий путь", http.contains("Играть через движок"))
         val container = PlayerApi.playbackHint("ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED")
         assertTrue("подсказка про служебный формат: $container", container.contains("UMP"))
         assertTrue("для прочих ошибок молчим", PlayerApi.playbackHint("ERROR_CODE_UNSPECIFIED").isEmpty())

@@ -388,7 +388,7 @@ private var playbackSpeed = 1.0f
                     }
                     renderStatus(
                         "извлечение не удалось: ${outcome.notes.joinToString(" | ")}$hint" +
-                            " — рабочий путь: кнопка «Экран YouTube»",
+                            " — рабочий путь: кнопка «Играть через движок»",
                     )
                     return@runOnUiThread
                 }
@@ -814,7 +814,7 @@ private var playbackSpeed = 1.0f
                 }
                 lines += "$label → $summary"
                 DiagLog.add("проба: $label → $summary")
-                if (foundUrl == null && summary.startsWith("HTTP 200") && !label.startsWith("только проверка")) {
+                if (foundUrl == null && summary.startsWith("HTTP 200") && !summary.contains("ump") && !label.startsWith("только проверка")) {
                     foundUrl = candidate
                     foundPot = potUsed
                 }

@@ -400,9 +400,9 @@ object PlayerApi {
             reason.contains("не бот", ignoreCase = true)
     fun playbackHint(errorCodeName: String): String = when (errorCodeName) {
         "ERROR_CODE_IO_BAD_HTTP_STATUS" ->
-            ". Сервис отдаёт этот файл только с подтверждением клиента; рабочий путь — «Экран YouTube»"
+            ". Сервис отдаёт этот файл только с подтверждением клиента; рабочий путь — кнопка «Играть через движок»"
         "ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED" ->
-            ". Браузер получает поток в служебном формате (UMP), который плеер не разбирает; рабочий путь — «Экран YouTube»"
+            ". Браузер получает поток в служебном формате (UMP), который плеер не разбирает; рабочий путь — кнопка «Играть через движок»"
         else -> ""
     }
 
