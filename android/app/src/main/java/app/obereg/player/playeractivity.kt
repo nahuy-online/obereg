@@ -663,6 +663,18 @@ private var playbackSpeed = 1.0f
             if (visitorPot != null) variants += Triple("с гостевым токеном", PlayerApi.appendPoToken(base, visitorPot), visitorPot)
             if (videoPot != null) variants += Triple("с токеном ролика", PlayerApi.appendPoToken(base, videoPot), videoPot)
             variants += Triple("без токена", base, null)
+            val engineUrl = StreamCatcher.lastEngineStream
+            if (engineUrl != null && engineUrl.contains("sabr=1")) {
+                variants += Triple("только проверка: страница без sabr", engineUrl.replace("&sabr=1", ""), null)
+            }
+            if (engineUrl != null && visitorPot != null) {
+                variants += Triple("только проверка: страница + гость", PlayerApi.appendPoToken(engineUrl, visitorPot), null)
+            }
+            variants += Triple(
+                "только проверка: наш + сессия",
+                base + "&cpn=OberegSess0000001&cver=2.20261005.01.00&rn=1&alr=yes",
+                null,
+            )
             if (visitorPot != null) {
                 variants += Triple("гость + десктопный UA", PlayerApi.appendPoToken(base, visitorPot), visitorPot)
             }
@@ -679,7 +691,7 @@ private var playbackSpeed = 1.0f
                 }
                 lines += "$label → $summary"
                 DiagLog.add("проба: $label → $summary")
-                if (foundUrl == null && summary.startsWith("HTTP 200")) {
+                if (foundUrl == null && summary.startsWith("HTTP 200") && !label.startsWith("только проверка")) {
                     foundUrl = candidate
                     foundPot = potUsed
                 }
