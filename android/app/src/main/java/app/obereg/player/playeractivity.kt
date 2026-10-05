@@ -296,10 +296,14 @@ private var playbackSpeed = 1.0f
                 YouTubeExtractor(
                     proxyAddress = proxy,
                     cookieProvider = { webViewCookies() },
-                    poTokenProvider = {
-                        TokenStore.get("__visitor")?.value?.takeIf { it.isNotEmpty() }
-                            ?: forgedToken
-                            ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value
+                    poTokenProvider = { label ->
+                        if (label == "ANDROID" || label == "IOS") {
+                            TokenStore.get(videoId)?.value ?: TokenStore.latest()?.value
+                        } else {
+                            TokenStore.get("__visitor")?.value?.takeIf { it.isNotEmpty() }
+                                ?: forgedToken
+                                ?: (TokenStore.get(videoId) ?: TokenStore.latest())?.value
+                        }
                     },
                     visitorDataProvider = { AppSettings.visitorData(this) },
                     pageResponseProvider = { engineResponse },

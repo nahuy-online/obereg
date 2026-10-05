@@ -863,4 +863,11 @@ class YouTubeExtractorTest {
         assertEquals("первым параметром", "P_2-x", PlayerApi.potFromUrl("https://x/videoplayback?pot=P_2-x"))
         assertEquals("без токена - null", null, PlayerApi.potFromUrl("https://x/videoplayback?a=1"))
     }
+
+    @Test
+    fun tvProfilesPresent() {
+        assertTrue("TV есть", PlayerApi.profiles.any { it.label == "TV" })
+        assertTrue("MWEB есть", PlayerApi.profiles.any { it.label == "MWEB" })
+        assertTrue("WEB остался", PlayerApi.profiles.any { it.label == "WEB" })
+    }
 }

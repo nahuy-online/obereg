@@ -164,6 +164,24 @@ object PlayerApi {
             clientHeaderName = "1",
             extraContext = emptyMap(),
         ),
+        ClientProfile(
+            label = "TV",
+            clientName = "TVHTML5",
+            clientVersion = "7.20250101.09.00",
+            userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold " +
+                "(unlike Gecko) v8/8.8.278.8-jit gles Starboard/17",
+            clientHeaderName = "7",
+            extraContext = emptyMap(),
+        ),
+        ClientProfile(
+            label = "MWEB",
+            clientName = "MWEB",
+            clientVersion = "2.20250101.01.00",
+            userAgent = "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+            clientHeaderName = "2",
+            extraContext = emptyMap(),
+        ),
     )
 
     /** Тело запроса: контекст клиента + идентификатор видео. */
@@ -582,7 +600,7 @@ class YouTubeExtractor(
     /** Cookie домена сервиса (например, из встроенного браузера, где проверка уже пройдена). */
     private val cookieProvider: (() -> String?)? = null,
     /** Токен подтверждения клиента, если движок уже успел его добыть (шаг P3). */
-    private val poTokenProvider: (() -> String?)? = null,
+    private val poTokenProvider: ((String) -> String?)? = null,
     private val visitorDataProvider: (() -> String?)? = null,
     private val pageResponseProvider: (() -> String?)? = null,
 ) {
@@ -715,7 +733,7 @@ class YouTubeExtractor(
         useToken: Boolean = true,
     ): ExtractResult {
         val token = if (useToken) {
-            poTokenProvider?.let { provider -> runCatching(provider).getOrNull() }?.takeIf { it.isNotBlank() }
+            poTokenProvider?.let { provider -> runCatching { provider(profile.label) }.getOrNull() }?.takeIf { it.isNotBlank() }
         } else {
             null
         }
