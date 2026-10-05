@@ -54,7 +54,7 @@ private var playbackSpeed = 1.0f
     private var statusMessage: String = "готово к работе"
 
     /** Запасные источники потока: если основной не воспроизводится, берём следующий. */
-    private val variants = ArrayDeque<ExtractResult>()
+    private val variants = ArrayDeque<VariantAttempt>()
 
     /** Что делать при ошибке воспроизведения (перебор источников). */
     private var onPlaybackFailure: (() -> Boolean)? = null
@@ -354,7 +354,8 @@ private var playbackSpeed = 1.0f
                 null
             } ?: return@Thread
             runOnUiThread {
-                val first = outcome.usable.firstOrNull()
+                val attempts = buildAttempts(outcome.usable, videoId)
+                val first = attempts.removeFirstOrNull()
                 DiagLog.add(
                     "извлечение: пригодных ${outcome.usable.size}; заметки: ${outcome.notes.joinToString(" | ").take(1000)}",
                 )
@@ -382,22 +383,24 @@ private var playbackSpeed = 1.0f
                 currentTitle = "YouTube $videoId"
                 currentVideoId = videoId
                 variants.clear()
-                variants.addAll(outcome.usable.drop(1))
+                variants.addAll(attempts)
                 onVariant(first)
             }
         }.start()
     }
 
     /** Отдать плееру один вариант воспроизведения. */
-    private fun onVariant(variant: ExtractResult) {
+    private fun onVariant(attempt: VariantAttempt) {
+        val variant = attempt.result
         when (variant) {
             is ExtractResult.Success -> {
                 play(
                     variant.format.url,
                     PlayerApi.mediaHeaders(variant.clientUserAgent, webViewCookies()),
                     onFailure = { fallBackToNextVariant() },
+                    potOverride = attempt.pot,
                 )
-                DiagLog.add("играю вариант: ${variant.format.url.take(180)}")
+                DiagLog.add("играю вариант [${attempt.note}]: ${variant.format.url.take(140)}")
                 val quality = variant.format.qualityLabel ?: variant.format.itag.toString()
                 renderStatus(
                     "свой плеер: поток $quality, всего потоков в ответе — ${variant.total}" +
@@ -410,6 +413,7 @@ private var playbackSpeed = 1.0f
                     variant.audio.url,
                     PlayerApi.mediaHeaders(variant.clientUserAgent, webViewCookies()),
                     onFailure = { fallBackToNextVariant() },
+                    potOverride = attempt.pot,
                 )
                 val quality = variant.video.qualityLabel ?: variant.video.itag.toString()
                 renderStatus(
@@ -421,10 +425,73 @@ private var playbackSpeed = 1.0f
         }
     }
 
+    /** Попытка воспроизведения: кандидат, пояснение и режим токена (null - по умолчанию, "" - без токена). */
+    private data class VariantAttempt(val result: ExtractResult, val note: String, val pot: String?)
+
+    /** Раскладка попыток: какие кандидаты и с каким токеном пробовать. */
+    private fun buildAttempts(usable: List<ExtractResult>, videoId: String): ArrayDeque<VariantAttempt> {
+        val videoPot = TokenStore.get(videoId)?.value
+        val visitorPot = TokenStore.get("__visitor")?.value
+        val queue = ArrayDeque<VariantAttempt>()
+        val ordered = usable.sortedBy { candidatePriority(clientLabelOf(it)) }
+        for (result in ordered) {
+            val label = clientLabelOf(result)
+            when (label) {
+                "ANDROID", "ANDROID_VR" -> {
+                    // Мобильному клиенту токен на файл не положен - сначала голый адрес.
+                    queue.add(VariantAttempt(result, "$label без токена", ""))
+                    if (visitorPot != null) queue.add(VariantAttempt(result, "$label с гостевым", visitorPot))
+                    if (videoPot != null) queue.add(VariantAttempt(result, "$label с токеном ролика", videoPot))
+                }
+                "TV" -> {
+                    queue.add(VariantAttempt(result, "TV без токена", ""))
+                    if (visitorPot != null) queue.add(VariantAttempt(result, "TV с гостевым", visitorPot))
+                }
+                "VISIONOS" -> {
+                    queue.add(VariantAttempt(result, "visionos без токена", ""))
+                    if (visitorPot != null) queue.add(VariantAttempt(result, "visionos с гостевым", visitorPot))
+                }
+                "MWEB" -> {
+                    if (visitorPot != null) queue.add(VariantAttempt(result, "MWEB с гостевым", visitorPot))
+                    if (videoPot != null) queue.add(VariantAttempt(result, "MWEB с токеном ролика", videoPot))
+                    queue.add(VariantAttempt(result, "MWEB без токена", ""))
+                }
+                else -> queue.add(VariantAttempt(result, "как раньше", null))
+            }
+        }
+        return ArrayDeque(queue.take(12))
+    }
+
+    /** Клиент кандидата по его заголовку клиента. */
+    private fun clientLabelOf(result: ExtractResult): String {
+        val ua = when (result) {
+            is ExtractResult.Success -> result.clientUserAgent
+            is ExtractResult.SeparateStreams -> result.clientUserAgent
+            else -> null
+        }.orEmpty()
+        return when {
+            ua.contains("youtube.vr.oculus") -> "ANDROID_VR"
+            ua.contains("android.youtube") -> "ANDROID"
+            ua.contains("com.google.ios") -> "IOS"
+            ua.contains("Cobalt") -> "TV"
+            ua.contains("iPad") -> "MWEB"
+            ua.contains("Macintosh") && ua.contains("605.1.15") -> "VISIONOS"
+            else -> ""
+        }
+    }
+
+    /** Приоритет кандидата: где файл вероятнее открывается - выше. */
+    private fun candidatePriority(label: String): Int = when (label) {
+        "ANDROID", "ANDROID_VR" -> 0
+        "TV" -> 1
+        "VISIONOS" -> 2
+        "MWEB" -> 3
+        else -> 4
+    }
     /** Если поток не пошёл — попробовать следующий источник из собранных вариантов. */
     private fun fallBackToNextVariant(): Boolean {
         val next = variants.removeFirstOrNull() ?: return false
-        renderStatus("этот источник не подошёл — пробую следующий (осталось: ${variants.size + 1})")
+        renderStatus("попытка не вышла — пробую следующую: ${next.note} (осталось: ${variants.size + 1})")
         onVariant(next)
         return true
     }
@@ -435,14 +502,15 @@ private var playbackSpeed = 1.0f
         audioUrl: String,
         headers: Map<String, String> = emptyMap(),
         onFailure: (() -> Boolean)? = null,
+        potOverride: String? = null,
     ) {
         val proxyAddress = currentProxy()
         val exo = ensurePlayer()
         exo.stop()
         exo.clearMediaItems()
         onPlaybackFailure = onFailure
-        val videoPlayUrl = appendStoredPot(videoUrl, false)
-        val audioPlayUrl = appendStoredPot(audioUrl, false)
+        val videoPlayUrl = if (potOverride != null) PlayerApi.appendPoToken(videoUrl, potOverride) else appendStoredPot(videoUrl, false)
+        val audioPlayUrl = if (potOverride != null) PlayerApi.appendPoToken(audioUrl, potOverride) else appendStoredPot(audioUrl, false)
         currentStreamUrl = videoPlayUrl
         currentStreamHeaders = headers
 
@@ -626,7 +694,7 @@ private var playbackSpeed = 1.0f
             10_000,
         )
         if (text.isNullOrEmpty() || text.length < 500) {
-            DiagLog.add("запрос со страницы: ответ пуст или короток (${(text ?: "").length})")
+            DiagLog.add("запрос со страницы: ответ пуст или короток (${(text ?: "").length}): ${(text ?: "").take(220)}")
             return null
         }
         DiagLog.add("запрос со страницы: ответ ${text.length} символов")
