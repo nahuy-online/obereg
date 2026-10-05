@@ -707,7 +707,7 @@ class YouTubeExtractor(
                             notes += "годный поток: ${tuned.label}"
                             usable += result
                         }
-                        else -> notes += "${tuned.label}: ${PlayerApi.reasonOf(result)}"
+                        else -> notes += "${tuned.label}: ${PlayerApi.reasonOf(result).take(100)}"
                     }
                     // Двух запасных вариантов достаточно: больше — лишние запросы к сервису.
                     if (usable.size >= 3) break

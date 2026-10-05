@@ -320,7 +320,7 @@ private var playbackSpeed = 1.0f
             runOnUiThread {
                 val first = outcome.usable.firstOrNull()
                 DiagLog.add(
-                    "извлечение: пригодных ${outcome.usable.size}; заметки: ${outcome.notes.joinToString(" | ").take(700)}",
+                    "извлечение: пригодных ${outcome.usable.size}; заметки: ${outcome.notes.joinToString(" | ").take(1000)}",
                 )
                 outcome.usable.forEachIndexed { index, variant ->
                     val url = when (variant) {
@@ -628,6 +628,7 @@ private var playbackSpeed = 1.0f
             variants += Triple("без токена", base, null)
             var foundUrl: String? = null
             var foundPot: String? = null
+            DiagLog.add("проба: начал проверку вариантов")
             val lines = mutableListOf<String>()
             for ((label, candidate, potUsed) in variants) {
                 val summary = try {
@@ -636,6 +637,7 @@ private var playbackSpeed = 1.0f
                     "сбой: ${error.message?.take(80)}"
                 }
                 lines += "$label → $summary"
+                DiagLog.add("проба: $label → $summary")
                 if (foundUrl == null && summary.startsWith("HTTP 200")) {
                     foundUrl = candidate
                     foundPot = potUsed
@@ -651,9 +653,11 @@ private var playbackSpeed = 1.0f
                     "сбой: ${error.message?.take(80)}"
                 }
                 lines += "адрес страницы → $pageSummary"
+                DiagLog.add("проба: адрес страницы → $pageSummary")
             }
             val report = lines.joinToString("; ")
             val exit = exitAddressReport(proxyAddress)
+            DiagLog.add("проба: адрес выхода - $exit")
             runOnUiThread {
                 DiagLog.add("проба ссылки: $report; $exit")
                 if (chosenUrl != null && chosenUrl != url) {
