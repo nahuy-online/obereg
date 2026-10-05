@@ -267,6 +267,8 @@ object PlayerApi {
         if (auth != null) {
             headers["Authorization"] = auth
             headers["X-Origin"] = "https://www.youtube.com"
+            headers["X-Goog-AuthUser"] = "0"
+            headers["X-Youtube-Bootstrap-Logged-In"] = "true"
         }
         return RequestSpec(
             url = "$ENDPOINT?key=$apiKey&prettyPrint=false",
@@ -318,7 +320,7 @@ object PlayerApi {
     /** Нужен ли вход: признаки авторизации в cookie встроенного браузера. */
     fun hasLoginCookies(cookies: String?): Boolean {
         if (cookies.isNullOrBlank()) return false
-        val markers = listOf("SAPISID", "__Secure-1PSID", "__Secure-3PSID", "LOGIN_INFO")
+        val markers = listOf("SAPISID=", "__Secure-1PSID=", "__Secure-3PSID=", "LOGIN_INFO=")
         return markers.any { marker -> cookies.contains(marker) }
     }
 
@@ -789,16 +791,21 @@ class YouTubeExtractor(
                 val pageVersion = PlayerApi.extractClientVersion(page)
                 val cookiesNow = cookieHeader()
                 val loggedIn = PlayerApi.hasLoginCookies(cookiesNow)
+                DiagLog.add("сеанс: " + PlayerApi.loginStateLabel(cookiesNow))
                 val order = if (loggedIn) {
-                    // Для вошедшего сеанса эталон поднимает web_embedded и tv_downgraded.
+                    // Как у эталона: для вошедшего сеанса сначала tv_downgraded, web_embedded, web.
                     PlayerApi.profiles.sortedBy {
                         when (it.label) {
                             "TV_DOWNGRADED" -> 0
                             "WEB_EMBEDDED" -> 1
-                            "VISIONOS" -> 2
-                            "ANDROID" -> 3
-                            "WEB" -> 4
-                            else -> 5
+                            "WEB" -> 2
+                            "VISIONOS" -> 3
+                            "ANDROID" -> 4
+                            "IOS" -> 5
+                            "MWEB" -> 6
+                            "TV" -> 7
+                            "ANDROID_VR" -> 8
+                            else -> 9
                         }
                     }
                 } else {
@@ -865,7 +872,8 @@ class YouTubeExtractor(
             DiagLog.add("токен подтверждения: есть (${token.length} символов)")
         }
         val visitor = visitorDataProvider?.let { provider -> runCatching(provider).getOrNull() }
-        val auth = PlayerApi.authHeader(cookieHeader())
+        val cookiesForAuth = cookieHeader()
+        val auth = if (PlayerApi.hasLoginCookies(cookiesForAuth)) PlayerApi.authHeader(cookiesForAuth) else null
         val spec = PlayerApi.spec(profile, videoId, apiKey, token, visitor, auth)
         val raw = when (val fetched = post(spec)) {
             is Fetch.Failed -> return ExtractResult.Failure(fetched.reason)

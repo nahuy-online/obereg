@@ -323,6 +323,26 @@ class YouTubeExtractorTest {
         assertNull("пусто - не ошибка", PlayerApi.authHeader(null))
     }
     @Test
+    fun authedSpecCarriesAccountHeaders() {
+        // Для вошедшего сеанса эталон добавляет подпись, номер пользователя и признак входа.
+        val profile = PlayerApi.profiles.first()
+        val authed = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123", null, null, "SAPISIDHASH 1_ab")
+        assertEquals("https://www.youtube.com", authed.headers["X-Origin"])
+        assertEquals("0", authed.headers["X-Goog-AuthUser"])
+        assertEquals("true", authed.headers["X-Youtube-Bootstrap-Logged-In"])
+        assertEquals("SAPISIDHASH 1_ab", authed.headers["Authorization"])
+        val guest = PlayerApi.spec(profile, "dQw4w9WgXcQ", "TEST-KEY-123")
+        assertNull("без входа подписи нет", guest.headers["Authorization"])
+    }
+
+    @Test
+    fun loginCookiesRequireLoginMarker() {
+        // «Вход выполнен» - только по настоящим cookie входа, а не по гостевому 3PAPISID.
+        assertTrue(PlayerApi.hasLoginCookies("SAPISID=abc; VISITOR_INFO1_LIVE=vv"))
+        assertTrue(PlayerApi.hasLoginCookies("LOGIN_INFO=zzz"))
+        assertFalse(PlayerApi.hasLoginCookies("__Secure-3PAPISID=abc; VISITOR_INFO1_LIVE=vv"))
+    }
+    @Test
     fun watchUrlCarriesVideoId() {
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=ru", PlayerApi.watchUrl("dQw4w9WgXcQ"))
     }
