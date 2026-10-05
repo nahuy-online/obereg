@@ -304,6 +304,15 @@ class YouTubeExtractorTest {
     }
 
     @Test
+    fun attestationRefusalIsRecognised() {
+        // «Мигающий» отказ: по нему стоит повторить запрос клиента.
+        assertTrue(
+            PlayerApi.isAttestationRefusal("сервис отказал: Войдите в аккаунт, чтобы подтвердить, что вы не бот"),
+        )
+        assertTrue(PlayerApi.isAttestationRefusal("Sign in to confirm you're not a bot"))
+        assertFalse(PlayerApi.isAttestationRefusal("Видео недоступно"))
+    }
+    @Test
     fun watchUrlCarriesVideoId() {
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=ru", PlayerApi.watchUrl("dQw4w9WgXcQ"))
     }

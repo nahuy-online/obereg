@@ -354,6 +354,11 @@ object PlayerApi {
      * которого нет в открытых плеерах (потому «не распознан контейнер»).
      * Честная подсказка важнее технического кода.
      */
+    /** Мигающий отказ: сервис требует подтверждения («подтвердить, что вы не бот»). */
+    fun isAttestationRefusal(reason: String): Boolean =
+        reason.contains("подтвердить", ignoreCase = true) ||
+            reason.contains("not a bot", ignoreCase = true) ||
+            reason.contains("не бот", ignoreCase = true)
     fun playbackHint(errorCodeName: String): String = when (errorCodeName) {
         "ERROR_CODE_IO_BAD_HTTP_STATUS" ->
             ". Сервис отдаёт этот файл только с подтверждением клиента; рабочий путь — «Экран YouTube»"
@@ -756,12 +761,23 @@ class YouTubeExtractor(
                         notes += "WEB с токеном: ${PlayerApi.reasonOf(result).take(120)}"
                         result = attempt(tuned, videoId, apiKey, useToken = false)
                     }
+                    var retried = false
+                    if (result is ExtractResult.Failure &&
+                        tuned.label != "WEB_EMBEDDED" && tuned.label != "TV_EMBEDDED" &&
+                        PlayerApi.isAttestationRefusal(PlayerApi.reasonOf(result))
+                    ) {
+                        // Отказ бывает мигающим (волны проверок на стороне сервиса) - пробуем ещё раз.
+                        Thread.sleep(1_200)
+                        DiagLog.add("повтор клиента: ${tuned.label} (отказ может быть мигающим)")
+                        retried = true
+                        result = attempt(tuned, videoId, apiKey)
+                    }
                     when (result) {
                         is ExtractResult.Success, is ExtractResult.SeparateStreams -> {
-                            notes += "годный поток: ${tuned.label}"
+                            notes += "годный поток: ${tuned.label}" + (if (retried) " (со второго раза)" else "")
                             usable += result
                         }
-                        else -> notes += "${tuned.label}: ${PlayerApi.reasonOf(result).take(100)}"
+                        else -> notes += "${tuned.label}: ${PlayerApi.reasonOf(result).take(100)}" + (if (retried) " (после повтора)" else "")
                     }
                     // Двух запасных вариантов достаточно: больше — лишние запросы к сервису.
                     if (usable.size >= 3) break

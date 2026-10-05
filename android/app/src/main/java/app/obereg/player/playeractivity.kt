@@ -676,29 +676,36 @@ private var playbackSpeed = 1.0f
      * Возвращает ответ плеера, полученный страницей из её же контекста, или null.
      */
     private fun pagePlayerFetch(videoId: String): String? {
-        val started = runCatching { forgeJs(TokenProbe.pagePlayerScript(videoId), 6_000) }.getOrNull()
-        val ready = if (started != null && started.contains("уже")) {
-            "готово"
-        } else {
-            forgePoll(
-                "(window.__oberegPagePlayer ? (window.__oberegPagePlayer.state || '') : '')",
-                20_000,
-            ) { it.contains("готово") || it.contains("ошибка") }
+        repeat(2) { round ->
+            if (round > 0) {
+                runCatching { forgeJs("window.__oberegPagePlayer = null; 'ok'", 4_000) }
+                DiagLog.add("запрос со страницы: повтор")
+                Thread.sleep(900)
+            }
+            val started = runCatching { forgeJs(TokenProbe.pagePlayerScript(videoId), 6_000) }.getOrNull()
+            val ready = if (round == 0 && started != null && started.contains("уже")) {
+                "готово"
+            } else {
+                forgePoll(
+                    "(window.__oberegPagePlayer ? (window.__oberegPagePlayer.state || '') : '')",
+                    20_000,
+                ) { it.contains("готово") || it.contains("ошибка") }
+            }
+            if (ready != null && ready.contains("готово")) {
+                val text = forgeJs(
+                    "(window.__oberegPagePlayer && window.__oberegPagePlayer.text) ? window.__oberegPagePlayer.text : ''",
+                    10_000,
+                )
+                if (!text.isNullOrEmpty() && text.length >= 500) {
+                    DiagLog.add("запрос со страницы: ответ ${text.length} символов")
+                    return text
+                }
+                DiagLog.add("запрос со страницы: ответ пуст или короток (${(text ?: "").length}): ${(text ?: "").take(220)}")
+            } else {
+                DiagLog.add("запрос со страницы: не дождались (${(ready ?: "").take(40)})")
+            }
         }
-        if (ready == null || !ready.contains("готово")) {
-            DiagLog.add("запрос со страницы: не дождались (${(ready ?: "").take(40)})")
-            return null
-        }
-        val text = forgeJs(
-            "(window.__oberegPagePlayer && window.__oberegPagePlayer.text) ? window.__oberegPagePlayer.text : ''",
-            10_000,
-        )
-        if (text.isNullOrEmpty() || text.length < 500) {
-            DiagLog.add("запрос со страницы: ответ пуст или короток (${(text ?: "").length}): ${(text ?: "").take(220)}")
-            return null
-        }
-        DiagLog.add("запрос со страницы: ответ ${text.length} символов")
-        return text
+        return null
     }
 
 
