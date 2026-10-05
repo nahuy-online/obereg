@@ -459,7 +459,6 @@ private var playbackSpeed = 1.0f
                 "движок страницы: ответ плеера не найден"
             },
         )
-        if (existing != null && TokenStore.get("__visitor")?.value != null) return existing
         forgeJs(TokenProbe.armErrorsScript(), 5_000)
         if (script.length > 5_000) {
             val escapedScript = org.json.JSONObject.quote(script)
@@ -634,10 +633,19 @@ private var playbackSpeed = 1.0f
             }
             val chosenUrl = foundUrl
             val chosenPot = foundPot
+            val pageStream = StreamCatcher.lastPageStream
+            if (pageStream != null) {
+                val pageSummary = try {
+                    fetchHead(pageStream, headers, proxyAddress)
+                } catch (error: Exception) {
+                    "сбой: ${error.message?.take(80)}"
+                }
+                lines += "адрес страницы → $pageSummary"
+            }
             val report = lines.joinToString("; ")
             val exit = exitAddressReport(proxyAddress)
             runOnUiThread {
-                DiagLog.add("проба ссылки: $report")
+                DiagLog.add("проба ссылки: $report; $exit")
                 if (chosenUrl != null && chosenUrl != url) {
                     DiagLog.add("проба: выбран рабочий вариант - играю")
                     renderStatus("рабочий вариант найден: $report; $exit")

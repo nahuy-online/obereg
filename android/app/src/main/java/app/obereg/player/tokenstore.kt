@@ -98,3 +98,9 @@ object TokenStore {
     /** Сколько токенов хранится — для журнала. */
     fun size(): Int = synchronized(tokens) { tokens.size }
 }
+
+/** Последний адрес потока, пойманный со страницы YouTube (для сравнения в пробе). */
+object StreamCatcher {
+    @Volatile
+    var lastPageStream: String? = null
+}
