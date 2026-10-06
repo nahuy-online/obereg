@@ -2,54 +2,94 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:background="#0B0D11">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp">
 
         <Button
             android:id="@+id/btnEngineBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:text="Назад" />
+            android:background="@drawable/bg_icon"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="‹ Свернуть"
+            android:textColor="#CFD8E6"
+            android:textSize="12sp" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <Button
             android:id="@+id/btnEngineDirect"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:text="Прямой поток" />
-
-        <Button
-            android:id="@+id/btnEngineSpeed"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="Скорость: 1×" />
+            android:background="@drawable/bg_icon"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="Прямой поток"
+            android:textColor="#7AA2FF"
+            android:textSize="12sp" />
 
         <Button
             android:id="@+id/btnEngineReload"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:text="Заново" />
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_icon"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="Заново"
+            android:textColor="#CFD8E6"
+            android:textSize="12sp" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/engineStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="4dp"
-        android:textSize="11sp"
-        android:text="движок-плеер: запуск" />
 
     <WebView
         android:id="@+id/engineView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btnEngineSpeed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_icon"
+            android:text="Скорость: 1×"
+            android:textColor="#EEF1F6"
+            android:textSize="13.5sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/engineStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:text=""
+        android:textColor="#8B93A5"
+        android:textSize="10.5sp" />
 </LinearLayout>
