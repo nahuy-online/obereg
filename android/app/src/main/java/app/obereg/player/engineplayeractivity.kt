@@ -64,6 +64,16 @@ class EnginePlayerActivity : AppCompatActivity() {
             webView.loadUrl("https://www.youtube.com/watch?v=$videoId&hl=ru")
         }
         findViewById<Button>(R.id.btnEngineBack).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnEngineDirect).setOnClickListener {
+            if (videoId.isEmpty()) {
+                render("движок-плеер: нет ролика для прямого потока")
+            } else {
+                DiagLog.add("движок-плеер: переключаю на прямой поток")
+                startActivity(
+                    android.content.Intent(this, PlayerActivity::class.java).putExtra("videoId", videoId),
+                )
+            }
+        }
         findViewById<Button>(R.id.btnEngineReload).setOnClickListener {
             webView.reload()
             render("движок-плеер: перезагрузка")

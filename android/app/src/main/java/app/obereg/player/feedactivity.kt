@@ -5,11 +5,11 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.ArrayAdapter
-import android.widget.BaseAdapter
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ListView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
@@ -21,23 +21,28 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * Лента: рекомендации и подписки.
+ * Оболочка Obereg: Главная (лента сервиса), Shorts, Подписки, Библиотека.
  *
- * Данные берём **из браузерного движка** (невидимый WebView): там согласие и вход уже
- * пройдены — именно поэтому экран сервиса показывает те же ленты. Если движок данные
+ * Данные лент берём **из браузерного движка** (невидимый WebView): там согласие и вход
+ * уже пройдены — именно поэтому экран сервиса показывает те же ленты. Если движок данные
  * не отдал (страница ещё грузится, разметка другая), включается резервный путь —
- * отдельный запрос страницы с собранными cookie.
+ * отдельный запрос страницы с собранными cookie. Разбор делает ядро, и в готовый список
+ * вставляется наша рекомендация из настроек (третьей позицией по умолчанию).
  *
- * Разбор делает ядро, и в готовый список вставляется наша рекомендация из настроек.
+ * Библиотека — локальная: недавние ролики храним у себя и открываем тем же плеером.
+ * Shorts — пока заглушка, вертикальные ленты впереди.
  */
 class FeedActivity : AppCompatActivity() {
 
     private lateinit var listView: ListView
     private lateinit var statusView: TextView
     private lateinit var webView: WebView
+    private lateinit var shortsView: TextView
+    private lateinit var playlistsPill: Button
     private var items: List<FeedItem> = emptyList()
     private var playlists: List<FeedCodec.PlaylistEntry> = emptyList()
     private var mode: String = MODE_RECOMMENDED
+    private var tab: String = TAB_MAIN
     private var pageHandled = false
 
     /** Одна повторная попытка спросить данные у движка: страница иногда достраивается позже. */
@@ -50,6 +55,8 @@ class FeedActivity : AppCompatActivity() {
         listView = findViewById(R.id.feedList)
         statusView = findViewById(R.id.feedStatus)
         webView = findViewById(R.id.feedWebView)
+        shortsView = findViewById(R.id.shortsStub)
+        playlistsPill = findViewById(R.id.btnLibPlaylists)
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -66,19 +73,33 @@ class FeedActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.btnFeedRecommended).setOnClickListener { load(MODE_RECOMMENDED) }
-        findViewById<Button>(R.id.btnFeedSubscriptions).setOnClickListener { load(MODE_SUBSCRIPTIONS) }
-        findViewById<Button>(R.id.btnFeedPlaylists).setOnClickListener { load(MODE_PLAYLISTS) }
-        findViewById<Button>(R.id.btnFeedBack).setOnClickListener { finish() }
+        // Шапка: поиск, уведомления, отчёт, профиль.
+        findViewById<ImageButton>(R.id.btnHeadSearch).setOnClickListener {
+            startActivity(android.content.Intent(this, YouTubeActivity::class.java))
+        }
+        findViewById<ImageButton>(R.id.btnHeadBell).setOnClickListener {
+            Toast.makeText(this, "Уведомлений пока нет", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<ImageButton>(R.id.btnHeadReport).setOnClickListener { copyReport() }
+        findViewById<ImageButton>(R.id.btnHeadProfile).setOnClickListener {
+            startActivity(android.content.Intent(this, ProfileActivity::class.java))
+        }
+
+        // Нижняя навигация.
+        findViewById<Button>(R.id.navMain).setOnClickListener { showTab(TAB_MAIN) }
+        findViewById<Button>(R.id.navShorts).setOnClickListener { showTab(TAB_SHORTS) }
+        findViewById<Button>(R.id.navSubs).setOnClickListener { showTab(TAB_SUBS) }
+        findViewById<Button>(R.id.navLib).setOnClickListener { showTab(TAB_LIB) }
+        playlistsPill.setOnClickListener { load(MODE_PLAYLISTS) }
+
         listView.setOnItemClickListener { _, _, position, _ ->
-            if (mode == MODE_PLAYLISTS) {
-                playlists.getOrNull(position)?.let(::openPlaylist)
-            } else {
-                items.getOrNull(position)?.let(::openItem)
+            when {
+                mode == MODE_PLAYLISTS -> playlists.getOrNull(position)?.let(::openPlaylist)
+                else -> items.getOrNull(position)?.let(::openItem)
             }
         }
 
-        load(MODE_RECOMMENDED)
+        showTab(TAB_MAIN)
     }
 
     override fun onDestroy() {
@@ -86,7 +107,73 @@ class FeedActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    /** Переключение вкладок оболочки. */
+    private fun showTab(name: String) {
+        tab = name
+        val active = 0xFF7AA2FF.toInt()
+        val calm = 0xFF8B93A5.toInt()
+        findViewById<Button>(R.id.navMain).setTextColor(if (name == TAB_MAIN) active else calm)
+        findViewById<Button>(R.id.navShorts).setTextColor(if (name == TAB_SHORTS) active else calm)
+        findViewById<Button>(R.id.navSubs).setTextColor(if (name == TAB_SUBS) active else calm)
+        findViewById<Button>(R.id.navLib).setTextColor(if (name == TAB_LIB) active else calm)
+
+        shortsView.visibility = if (name == TAB_SHORTS) TextView.VISIBLE else TextView.GONE
+        listView.visibility = if (name == TAB_SHORTS) ListView.GONE else ListView.VISIBLE
+        playlistsPill.visibility = if (name == TAB_LIB) TextView.VISIBLE else TextView.GONE
+
+        when (name) {
+            TAB_MAIN -> load(MODE_RECOMMENDED)
+            TAB_SUBS -> load(MODE_SUBSCRIPTIONS)
+            TAB_LIB -> showRecents()
+            else -> {
+                pageHandled = true
+                statusView.text = "Shorts: скоро в этой оболочке"
+            }
+        }
+    }
+
+    /** Библиотека: недавние ролики из локального списка. */
+    private fun showRecents() {
+        pageHandled = true
+        val recents = parseRecents()
+        items = recents
+        listView.adapter = FeedAdapter(recents.map(::cardOf))
+        statusView.text = if (recents.isEmpty()) {
+            "Недавние видео: пусто — откройте любой ролик, и он появится здесь"
+        } else {
+            "Недавние видео: ${recents.size} — нажмите, чтобы открыть снова"
+        }
+        DiagLog.add("библиотека: недавних ${recents.size}")
+    }
+
+    private fun parseRecents(): List<FeedItem> {
+        val raw = AppSettings.recents(this)
+        if (raw.isBlank()) return emptyList()
+        val array = runCatching { org.json.JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val out = mutableListOf<FeedItem>()
+        for (index in 0 until array.length()) {
+            val obj = array.optJSONObject(index) ?: continue
+            val videoId = obj.optString("videoId")
+            if (videoId.isBlank()) continue
+            out += FeedItem(
+                videoId = videoId,
+                title = obj.optString("title").ifBlank { videoId },
+                channel = obj.optString("channel"),
+                duration = null,
+                views = null,
+                thumbnailUrl = null,
+                injected = false,
+            )
+        }
+        return out
+    }
+
     private fun load(newMode: String) {
+        if (tab == TAB_LIB && newMode != MODE_PLAYLISTS) {
+            // Библиотека показывает свой список; ленты грузятся во вкладках Главная/Подписки.
+            showRecents()
+            return
+        }
         mode = newMode
         val url = feedUrl(mode, mobile = true)
         pageHandled = false
@@ -115,10 +202,11 @@ class FeedActivity : AppCompatActivity() {
 
     /** Спросить у движка данные страницы. */
     private fun tryEngineData() {
-        if (pageHandled) return
+        if (pageHandled || tab == TAB_SHORTS || tab == TAB_LIB) return
         val js = "(function(){try{return JSON.stringify(window.ytInitialData||null);}" +
             "catch(e){return 'null';}})()"
         webView.evaluateJavascript(js) { raw ->
+            if (pageHandled || tab == TAB_SHORTS || tab == TAB_LIB) return@evaluateJavascript
             val json = PlayerApi.decodeJsString(raw)
             if (json == null || json == "null" || json.length < 1000) {
                 DiagLog.add("лента: движок не отдал данные (${json?.length ?: 0} символов)")
@@ -148,7 +236,7 @@ class FeedActivity : AppCompatActivity() {
                 }
             }
             runOnUiThread {
-                if (pageHandled) return@runOnUiThread
+                if (pageHandled || tab == TAB_SHORTS || tab == TAB_LIB) return@runOnUiThread
                 if (data == null) {
                     val digest = html?.let(PlayerApi::pageDigest) ?: "страница не получена"
                     DiagLog.add("лента: нет данных — $digest")
@@ -168,7 +256,13 @@ class FeedActivity : AppCompatActivity() {
             items = emptyList()
             listView.adapter = FeedAdapter(
                 playlists.map {
-                    FeedCodec.FeedRow(FeedCodec.playlistLabel(it), it.thumbnailUrl, it.playlistId)
+                    FeedCodec.FeedRow(
+                        label = FeedCodec.playlistLabel(it),
+                        thumbUrl = it.thumbnailUrl,
+                        tag = it.playlistId,
+                        title = it.title.ifEmpty { it.playlistId },
+                        sub = it.videoCount.orEmpty(),
+                    )
                 },
             )
             DiagLog.add("плейлистов: ${playlists.size}")
@@ -186,9 +280,7 @@ class FeedActivity : AppCompatActivity() {
             AppSettings.promoPosition(this),
         )
         items = FeedCodec.mapItems(coreJson)
-        listView.adapter = FeedAdapter(
-            items.map { FeedCodec.FeedRow(FeedCodec.label(it), it.thumbnailUrl, it.videoId) },
-        )
+        listView.adapter = FeedAdapter(items.map(::cardOf))
         DiagLog.add("лента ($mode): роликов ${items.size}")
         statusView.text = if (items.isEmpty()) {
             FeedCodec.emptyMessage(mode)
@@ -197,6 +289,20 @@ class FeedActivity : AppCompatActivity() {
                 if (items.any { it.injected }) ", наша рекомендация на месте" else ""
         }
     }
+
+    /** Карточка списка из данных ленты. */
+    private fun cardOf(item: FeedItem): FeedCodec.FeedRow = FeedCodec.FeedRow(
+        label = FeedCodec.label(item),
+        thumbUrl = item.thumbnailUrl,
+        tag = item.videoId,
+        title = item.title.ifEmpty { item.videoId },
+        sub = listOfNotNull(
+            item.channel.takeIf { it.isNotEmpty() },
+            item.views,
+            item.duration,
+        ).joinToString(" · "),
+        promo = item.injected,
+    )
 
     /** Маршрут движка: наш туннель, если так выбрано в настройках. */
     private fun applyRoute() {
@@ -258,10 +364,12 @@ class FeedActivity : AppCompatActivity() {
         }
     }
 
+    /** Открыть ролик: запоминаем в недавних и играем движком (он открывается всегда). */
     private fun openItem(item: FeedItem) {
         DiagLog.add("лента: открываю ${item.videoId}")
-        val intent = android.content.Intent(this, YouTubeActivity::class.java)
-        intent.putExtra(YouTubeActivity.EXTRA_VIDEO_ID, item.videoId)
+        AppSettings.pushRecent(this, item.videoId, item.title.ifEmpty { item.videoId }, item.channel)
+        val intent = android.content.Intent(this, EnginePlayerActivity::class.java)
+        intent.putExtra("videoId", item.videoId)
         startActivity(intent)
     }
 
@@ -276,9 +384,45 @@ class FeedActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
+    /** Копия отчёта прямо из шапки: тот же общий журнал, что на других экранах. */
+    private fun copyReport() {
+        val core = runCatching { CoreHolder.status() }.getOrNull()
+        val header = buildString {
+            appendLine("Obereg · отчёт диагностики (оболочка)")
+            appendLine(
+                "время: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+                    .format(java.util.Date()),
+            )
+            appendLine("сборка: " + reportBuildLabel())
+            if (core != null) {
+                appendLine("ядро: ${core.state} / ${core.mode} / прокси ${core.listenAddr ?: "нет"}")
+            }
+            appendLine("--- журнал ---")
+        }
+        val report = header + DiagLog.dump()
+        runCatching {
+            val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(
+                android.content.ClipData.newPlainText("Obereg отчёт", report),
+            )
+        }
+        DiagLog.add("отчёт скопирован (${report.length} символов)")
+        Toast.makeText(this, "Отчёт скопирован (${report.length} символов)", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun reportBuildLabel(): String = runCatching {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        "${info.versionName} (${info.lastUpdateTime})"
+    }.getOrDefault("0.1.0")
+
     companion object {
         const val MODE_RECOMMENDED = "recommended"
         const val MODE_SUBSCRIPTIONS = "subscriptions"
         const val MODE_PLAYLISTS = "playlists"
+
+        const val TAB_MAIN = "main"
+        const val TAB_SHORTS = "shorts"
+        const val TAB_SUBS = "subs"
+        const val TAB_LIB = "lib"
     }
 }

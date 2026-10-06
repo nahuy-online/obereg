@@ -8,12 +8,12 @@ import android.widget.ImageView
 import android.widget.TextView
 
 /**
- * Список карточек: обложка и подпись.
+ * Список-карточки оболочки: миниатюра, название, подпись и метка «Рекомендуем».
  *
- * Работает и для роликов, и для плейлистов — строка одна и та же ([FeedCodec.FeedRow]).
- * Обложки грузятся своим загрузчиком ([ThumbLoader]) и кэшируются в памяти. Метка строки
- * защищает от показа чужой картинки при быстрой прокрутке: результат применяется только
- * если строка всё ещё показывает тот же элемент.
+ * Строки приходят из [FeedCodec.FeedRow]: у лент это ролики (название, канал, просмотры,
+ * длительность), у плейлистов — их записи, у библиотеки — недавние ролики. Наша
+ * рекомендация отмечается меткой, а не отдельной полкой, — так она выглядит частью ленты.
+ * Миниатюры грузит [ThumbLoader] с кэшем; повторная привязка защищена меткой строки.
  */
 class FeedAdapter(private val rows: List<FeedCodec.FeedRow>) : BaseAdapter() {
 
@@ -28,10 +28,16 @@ class FeedAdapter(private val rows: List<FeedCodec.FeedRow>) : BaseAdapter() {
             ?: LayoutInflater.from(parent.context).inflate(R.layout.item_feed, parent, false)
         val row = rows[position]
 
-        val label = view.findViewById<TextView>(R.id.feedRowLabel)
+        val title = view.findViewById<TextView>(R.id.feedRowTitle)
+        val sub = view.findViewById<TextView>(R.id.feedRowSub)
+        val badge = view.findViewById<TextView>(R.id.feedRowBadge)
         val thumb = view.findViewById<ImageView>(R.id.feedThumb)
 
-        label.text = row.label
+        title.text = row.title ?: row.label
+        sub.text = row.sub.orEmpty()
+        sub.visibility = if (row.sub.isNullOrEmpty()) View.GONE else View.VISIBLE
+        badge.visibility = if (row.promo) View.VISIBLE else View.GONE
+
         thumb.tag = row.tag
         thumb.setBackgroundColor(PLACEHOLDER_COLOR)
 
@@ -55,7 +61,7 @@ class FeedAdapter(private val rows: List<FeedCodec.FeedRow>) : BaseAdapter() {
     }
 
     companion object {
-        /** Цвет подложки, пока картинка не пришла. */
+        /** Цвет заглушки, пока миниатюра не пришла. */
         private const val PLACEHOLDER_COLOR = 0xFF20242C.toInt()
     }
 }

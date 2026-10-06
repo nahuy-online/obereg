@@ -17,6 +17,13 @@
             android:text="Назад" />
 
         <Button
+            android:id="@+id/btnEngineDirect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:text="Прямой поток" />
+
+        <Button
             android:id="@+id/btnEngineSpeed"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

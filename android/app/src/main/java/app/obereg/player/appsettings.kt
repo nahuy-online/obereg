@@ -19,6 +19,7 @@ object AppSettings {
     private const val KEY_TOKENS = "tokens.state"
     private const val KEY_FORGE = "forge.state"
     private const val KEY_VISITOR = "visitor.data"
+    private const val KEY_RECENTS = "library.recents"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -73,6 +74,15 @@ object AppSettings {
             .putInt(KEY_PROMO_POSITION, SettingsCodec.clampPosition(position.toString()))
             .apply()
     }
+
+    /** Недавние видео: локальный список последних открытых (Библиотека). */
+    fun recents(context: Context): String = prefs(context).getString(KEY_RECENTS, "") ?: ""
+
+    fun pushRecent(context: Context, videoId: String, title: String, channel: String) {
+        prefs(context).edit()
+            .putString(KEY_RECENTS, SettingsCodec.recentOrder(recents(context), videoId, title, channel))
+            .apply()
+    }
 }
 
 /** Разбор значений настроек: чистые функции, проверяются тестами. */
@@ -91,5 +101,20 @@ object SettingsCodec {
     fun looksLikeVideoId(text: String?): Boolean {
         val value = text?.trim().orEmpty()
         return value.length == 11 && value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
+
+    /** Порядок недавних: новый ролик первым, без повторов, не больше 20. */
+    fun recentOrder(existingJson: String, videoId: String, title: String, channel: String): String {
+        if (videoId.isBlank()) return existingJson
+        val existing = runCatching { org.json.JSONArray(existingJson) }.getOrNull() ?: org.json.JSONArray()
+        val out = org.json.JSONArray()
+        out.put(org.json.JSONObject().put("videoId", videoId).put("title", title).put("channel", channel))
+        for (i in 0 until existing.length()) {
+            val item = existing.optJSONObject(i) ?: continue
+            if (item.optString("videoId") == videoId) continue
+            if (out.length() >= 20) break
+            out.put(item)
+        }
+        return out.toString()
     }
 }

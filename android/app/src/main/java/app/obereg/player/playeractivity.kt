@@ -76,6 +76,12 @@ private var playbackSpeed = 1.0f
 
         playerView = findViewById(R.id.playerView)
         urlInput = findViewById(R.id.urlInput)
+
+        // Ролик из оболочки: подставляем адрес, чтобы остался только запуск.
+        intent.getStringExtra("videoId")?.takeIf { it.isNotBlank() }?.let { vid ->
+            urlInput.setText("https://www.youtube.com/watch?v=$vid")
+            DiagLog.add("плеер: подставлен ролик $vid из оболочки")
+        }
         tunnelCheck = findViewById(R.id.checkTunnel)
         statusView = findViewById(R.id.playerStatus)
 

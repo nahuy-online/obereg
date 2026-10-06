@@ -3,21 +3,56 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="6dp">
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp"
+    android:paddingTop="7dp"
+    android:paddingBottom="7dp">
 
     <ImageView
         android:id="@+id/feedThumb"
-        android:layout_width="132dp"
-        android:layout_height="76dp"
-        android:scaleType="centerCrop"
-        android:contentDescription="@string/feed_thumb_description" />
+        android:layout_width="150dp"
+        android:layout_height="84dp"
+        android:contentDescription="@string/feed_thumb_description"
+        android:scaleType="centerCrop" />
 
-    <TextView
-        android:id="@+id/feedRowLabel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical"
-        android:layout_marginStart="10dp"
-        android:textSize="13sp" />
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="84dp"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/feedRowTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="#EEF1F6"
+            android:textSize="14.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/feedRowSub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#8B93A5"
+            android:textSize="12.5sp" />
+
+        <TextView
+            android:id="@+id/feedRowBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="Рекомендуем"
+            android:textColor="#F5B13D"
+            android:textSize="10.5sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </LinearLayout>
 
 </LinearLayout>

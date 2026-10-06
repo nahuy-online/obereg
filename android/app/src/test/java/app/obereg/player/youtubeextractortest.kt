@@ -941,4 +941,14 @@ class YouTubeExtractorTest {
         assertTrue("короткие имена: $s", s.contains("a") && s.contains("b"))
         assertTrue("длинное значение с длиной: $s", s.contains("pot(29)"))
     }
+    @Test
+    fun recentsKeepNewestFirstWithoutDuplicates() {
+        // Недавние: новый — первым, без повторов, старые держатся в хвосте.
+        val first = SettingsCodec.recentOrder("", "a1", "Первый", "Канал")
+        val second = SettingsCodec.recentOrder(first, "b2", "Второй", "Канал")
+        val again = SettingsCodec.recentOrder(second, "a1", "Первый", "Канал")
+        val arr = org.json.JSONArray(again)
+        val ids = (0 until arr.length()).map { arr.getJSONObject(it).getString("videoId") }
+        assertEquals(listOf("a1", "b2"), ids)
+    }
 }

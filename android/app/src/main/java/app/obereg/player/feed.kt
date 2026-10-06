@@ -77,7 +77,14 @@ object FeedCodec {
     }
 
     /** Строка списка: подпись, картинка и метка для защиты от чужой обложки. */
-    data class FeedRow(val label: String, val thumbUrl: String?, val tag: String)
+    data class FeedRow(
+        val label: String,
+        val thumbUrl: String?,
+        val tag: String,
+        val title: String? = null,
+        val sub: String? = null,
+        val promo: Boolean = false,
+    )
 
     /** Плейлист в списке. */
     data class PlaylistEntry(

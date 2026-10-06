@@ -3,68 +3,180 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:background="#0F1115">
 
+    <!-- Шапка: логотип слева, поиск / уведомления / отчёт / профиль справа -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp">
 
-        <Button
-            android:id="@+id/btnFeedRecommended"
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="@string/feed_recommended" />
+            android:text="Оберег"
+            android:textColor="#EEF1F6"
+            android:textSize="19sp"
+            android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnFeedSubscriptions"
+        <Space
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="@string/feed_subscriptions" />
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
-        <Button
-            android:id="@+id/btnFeedPlaylists"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="@string/feed_playlists" />
+        <ImageButton
+            android:id="@+id/btnHeadSearch"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/bg_icon"
+            android:contentDescription="Поиск"
+            android:src="@drawable/ic_search" />
+
+        <ImageButton
+            android:id="@+id/btnHeadBell"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_icon"
+            android:contentDescription="Уведомления"
+            android:src="@drawable/ic_bell" />
+
+        <ImageButton
+            android:id="@+id/btnHeadReport"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_icon"
+            android:contentDescription="Скопировать отчёт"
+            android:src="@drawable/ic_report" />
+
+        <ImageButton
+            android:id="@+id/btnHeadProfile"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_icon"
+            android:contentDescription="Профиль"
+            android:src="@drawable/ic_person" />
     </LinearLayout>
-
-    <ListView
-        android:id="@+id/feedList"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="6dp" />
-
-    <WebView
-        android:id="@+id/feedWebView"
-        android:layout_width="match_parent"
-        android:layout_height="1dp" />
-
-    <Button
-        android:id="@+id/btnFeedBack"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="12sp"
-        android:text="@string/feed_back" />
 
     <TextView
         android:id="@+id/feedStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:background="#1A808080"
-        android:fontFamily="monospace"
-        android:minHeight="44dp"
-        android:padding="8dp"
-        android:textIsSelectable="true"
-        android:textSize="12sp"
-        android:text="@string/feed_status_idle" />
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="4dp"
+        android:text="оберег: запуск"
+        android:textColor="#8B93A5"
+        android:textSize="11sp" />
 
+    <Button
+        android:id="@+id/btnLibPlaylists"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="14dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/bg_icon"
+        android:text="Плейлисты"
+        android:textColor="#7AA2FF"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/feedList"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="#00000000"
+            android:dividerHeight="0dp" />
+
+        <TextView
+            android:id="@+id/shortsStub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:padding="32dp"
+            android:text="Shorts скоро: вертикальные ленты появятся в следующей сборке"
+            android:textColor="#8B93A5"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <WebView
+            android:id="@+id/feedWebView"
+            android:layout_width="1dp"
+            android:layout_height="1dp" />
+    </FrameLayout>
+
+    <!-- Нижняя навигация: Главная / Shorts / Подписки / Библиотека -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#13161D">
+
+        <Button
+            android:id="@+id/navMain"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="#00000000"
+            android:drawableTop="@drawable/ic_nav_home"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Главная"
+            android:textColor="#7AA2FF"
+            android:textSize="10.5sp" />
+
+        <Button
+            android:id="@+id/navShorts"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="#00000000"
+            android:drawableTop="@drawable/ic_nav_shorts"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Shorts"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+
+        <Button
+            android:id="@+id/navSubs"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="#00000000"
+            android:drawableTop="@drawable/ic_nav_subs"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Подписки"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+
+        <Button
+            android:id="@+id/navLib"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="#00000000"
+            android:drawableTop="@drawable/ic_nav_lib"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Библиотека"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+    </LinearLayout>
 </LinearLayout>
