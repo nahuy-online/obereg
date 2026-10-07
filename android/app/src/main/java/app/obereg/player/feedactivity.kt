@@ -100,7 +100,14 @@ class FeedActivity : AppCompatActivity() {
             }
         }
 
-        showTab(TAB_MAIN)
+        showTab(intent.getStringExtra("tab") ?: TAB_MAIN)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val target = intent.getStringExtra("tab") ?: return
+        showTab(target)
     }
 
     override fun onResume() {

@@ -105,6 +105,10 @@ class EnginePlayerActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.btnEngineBack).setOnClickListener { minimizeToPip() }
         findViewById<TextView>(R.id.btnEngineSettings).setOnClickListener { showSettings(videoId) }
+        findViewById<TextView>(R.id.navPlayerMain).setOnClickListener { openShell(FeedActivity.TAB_MAIN) }
+        findViewById<TextView>(R.id.navPlayerShorts).setOnClickListener { openShell(FeedActivity.TAB_SHORTS) }
+        findViewById<TextView>(R.id.navPlayerSubs).setOnClickListener { openShell(FeedActivity.TAB_SUBS) }
+        findViewById<TextView>(R.id.navPlayerLib).setOnClickListener { openShell(FeedActivity.TAB_LIB) }
     }
 
     /** Команды со страницы: свайп вниз по ролику и т.п. */
@@ -178,17 +182,35 @@ class EnginePlayerActivity : AppCompatActivity() {
         minimizeToPip()
     }
 
-    /** Свернуть в системное «картинка-в-картинке»: видео играет дальше поверх других окон. */
-    private fun minimizeToPip() {
+    /** Свернуть в системное «картинка-в-картинке» и перейти во вкладку оболочки. */
+    private fun openShell(tab: String) {
+        val entered = enterPip()
+        val intent = android.content.Intent(this, FeedActivity::class.java)
+            .putExtra("tab", tab)
+            .addFlags(
+                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
+        startActivity(intent)
+        if (!entered) finish()
+    }
+
+    /** Попытка входа в «картинка-в-картинке». */
+    private fun enterPip(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
                 .build()
-            val entered = runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
-            if (entered) {
-                DiagLog.add("движок-плеер: свернул в окно")
-                return
-            }
+            return runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+        }
+        return false
+    }
+
+    /** Свернуть в системное «картинка-в-картинке»: видео играет дальше поверх других окон. */
+    private fun minimizeToPip() {
+        if (enterPip()) {
+            DiagLog.add("движок-плеер: свернул в окно")
+            return
         }
         finish()
     }
@@ -254,6 +276,34 @@ class EnginePlayerActivity : AppCompatActivity() {
                   });
                 }
                 function attachSwipe() {
+                  if (!window.__oberegSwipeDoc) {
+                    window.__oberegSwipeDoc = true;
+                    var startY = null;
+                    var startX = null;
+                    var overPlayer = false;
+                    document.addEventListener('touchstart', function(e){
+                      try {
+                        var t = e.touches[0];
+                        startY = t.clientY;
+                        startX = t.clientX;
+                        var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                        var r = el ? el.getBoundingClientRect() : null;
+                        overPlayer = !!(r && t.clientY >= r.top && t.clientY <= r.bottom && t.clientX >= r.left && t.clientX <= r.right);
+                      } catch (err) { startY = null; }
+                    }, { passive: true, capture: true });
+                    document.addEventListener('touchend', function(e){
+                      if (startY === null || !overPlayer) { startY = null; return; }
+                      var t = e.changedTouches[0];
+                      var dy = t.clientY - startY;
+                      var dx = Math.abs(t.clientX - startX);
+                      startY = null;
+                      if (dy > 90 && dx < dy) {
+                        var h = host();
+                        if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }
+                        try { location.href = 'obereg://minimize'; } catch (err) { }
+                      }
+                    }, { passive: true, capture: true });
+                  }
                   var els = [
                     document.querySelector('ytm-player'),
                     document.querySelector('#player-container'),
@@ -263,12 +313,12 @@ class EnginePlayerActivity : AppCompatActivity() {
                   els.forEach(function(el) {
                     if (!el || el.__oberegSwipe) { return; }
                     el.__oberegSwipe = true;
-                    var startY = null;
-                    el.addEventListener('touchstart', function(e){ startY = e.touches[0].clientY; }, { passive: true });
+                    var elStartY = null;
+                    el.addEventListener('touchstart', function(e){ elStartY = e.touches[0].clientY; }, { passive: true });
                     el.addEventListener('touchend', function(e){
-                      if (startY === null) { return; }
-                      var dy = e.changedTouches[0].clientY - startY;
-                      startY = null;
+                      if (elStartY === null) { return; }
+                      var dy = e.changedTouches[0].clientY - elStartY;
+                      elStartY = null;
                       if (dy > 90) {
                         var h = host();
                         if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }

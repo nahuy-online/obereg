@@ -67,4 +67,71 @@
         android:text=""
         android:textColor="#8B93A5"
         android:textSize="10.5sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#13161D">
+
+        <TextView
+            android:id="@+id/navPlayerMain"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:drawableTop="@drawable/ic_nav_home"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Главная"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/navPlayerShorts"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:drawableTop="@drawable/ic_nav_shorts"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Shorts"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/navPlayerSubs"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:drawableTop="@drawable/ic_nav_subs"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Подписки"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/navPlayerLib"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:drawableTop="@drawable/ic_nav_lib"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="11dp"
+            android:text="Библиотека"
+            android:textColor="#8B93A5"
+            android:textSize="10.5sp" />
+    </LinearLayout>
 </LinearLayout>
