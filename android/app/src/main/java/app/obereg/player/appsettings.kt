@@ -20,6 +20,7 @@ object AppSettings {
     private const val KEY_FORGE = "forge.state"
     private const val KEY_VISITOR = "visitor.data"
     private const val KEY_RECENTS = "library.recents"
+    private const val KEY_PLAYER_SPEED = "player.speed"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -73,6 +74,13 @@ object AppSettings {
             .putString(KEY_PROMO_TITLE, title.trim())
             .putInt(KEY_PROMO_POSITION, SettingsCodec.clampPosition(position.toString()))
             .apply()
+    }
+
+    /** Скорость воспроизведения в движок-плеере (последняя выбранная). */
+    fun playerSpeed(context: Context): Float = prefs(context).getFloat(KEY_PLAYER_SPEED, 1.0f)
+
+    fun setPlayerSpeed(context: Context, value: Float) {
+        prefs(context).edit().putFloat(KEY_PLAYER_SPEED, value).apply()
     }
 
     /** Недавние видео: локальный список последних открытых (Библиотека). */

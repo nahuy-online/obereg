@@ -32,26 +32,14 @@
             android:layout_weight="1" />
 
         <Button
-            android:id="@+id/btnEngineDirect"
+            android:id="@+id/btnEngineSettings"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_icon"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
-            android:text="Прямой поток"
+            android:text="⚙ Настройки"
             android:textColor="#7AA2FF"
-            android:textSize="12sp" />
-
-        <Button
-            android:id="@+id/btnEngineReload"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_icon"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:text="Заново"
-            android:textColor="#CFD8E6"
             android:textSize="12sp" />
     </LinearLayout>
 
@@ -60,27 +48,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="8dp">
-
-        <Button
-            android:id="@+id/btnEngineSpeed"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@drawable/bg_icon"
-            android:text="Скорость: 1×"
-            android:textColor="#EEF1F6"
-            android:textSize="13.5sp" />
-    </LinearLayout>
 
     <TextView
         android:id="@+id/engineStatus"
