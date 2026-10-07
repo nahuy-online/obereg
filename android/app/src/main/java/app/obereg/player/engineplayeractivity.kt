@@ -9,7 +9,6 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
@@ -18,8 +17,9 @@ import androidx.appcompat.app.AppCompatActivity
  *
  * Играет ролик через доверенный сеанс браузера (тот же, что и экран сервиса):
  * видео открывается всегда, где доступен вход. Область ролика закреплена сверху —
- * чужая шапка не просто спрятана, а схлопнута в ноль, чтобы не оставалось пустого
- * места; ниже листается лента рекомендаций. Свайп вниз по области ролика (плюс
+ * чужая шапка спрятана, а страница подтягивается по фактической позиции ролика,
+ * чтобы не оставалось пустой полосы над плеером; ниже листается лента рекомендаций.
+ * Свайп вниз по области ролика (плюс
  * «‹ Свернуть» и системная «Назад») уводят окно в системное «картинка-в-картинке» —
  * видео продолжает играть поверх других окон.
  *
@@ -105,10 +105,6 @@ class EnginePlayerActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.btnEngineBack).setOnClickListener { minimizeToPip() }
         findViewById<TextView>(R.id.btnEngineSettings).setOnClickListener { showSettings(videoId) }
-        findViewById<TextView>(R.id.navPlayerMain).setOnClickListener { openShell(FeedActivity.TAB_MAIN) }
-        findViewById<TextView>(R.id.navPlayerShorts).setOnClickListener { openShell(FeedActivity.TAB_SHORTS) }
-        findViewById<TextView>(R.id.navPlayerSubs).setOnClickListener { openShell(FeedActivity.TAB_SUBS) }
-        findViewById<TextView>(R.id.navPlayerLib).setOnClickListener { openShell(FeedActivity.TAB_LIB) }
     }
 
     /** Команды со страницы: свайп вниз по ролику и т.п. */
@@ -180,19 +176,6 @@ class EnginePlayerActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         minimizeToPip()
-    }
-
-    /** Свернуть в системное «картинка-в-картинке» и перейти во вкладку оболочки. */
-    private fun openShell(tab: String) {
-        val entered = enterPip()
-        val intent = android.content.Intent(this, FeedActivity::class.java)
-            .putExtra("tab", tab)
-            .addFlags(
-                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP,
-            )
-        startActivity(intent)
-        if (!entered) finish()
     }
 
     /** Попытка входа в «картинка-в-картинке». */
@@ -330,13 +313,19 @@ class EnginePlayerActivity : AppCompatActivity() {
                 function pinPlayer() {
                   try {
                     var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
-                    if (!el) { return; }
-                    el.style.setProperty('top', '0px', 'important');
-                    var top = Math.round(el.getBoundingClientRect().top);
-                    if (Math.abs(top) > 4) {
-                      var cs = getComputedStyle(el);
-                      var current = parseFloat(cs.marginTop) || 0;
-                      el.style.setProperty('margin-top', (current - top) + 'px', 'important');
+                    if (el) { el.style.setProperty('top', '0px', 'important'); }
+                    var video = document.querySelector('video');
+                    if (!video) { return; }
+                    var vt = Math.round(video.getBoundingClientRect().top);
+                    if (Math.abs(vt) > 4) {
+                      var body = document.body;
+                      if (body) {
+                        var cur = parseFloat(getComputedStyle(body).marginTop) || 0;
+                        var next = cur - vt;
+                        if (next > -160 && next < 160) {
+                          body.style.setProperty('margin-top', next + 'px', 'important');
+                        }
+                      }
                     }
                   } catch (e) { }
                 }
@@ -359,7 +348,12 @@ class EnginePlayerActivity : AppCompatActivity() {
                       parts.push('игрок:' + Math.round(pr.height) + '@' + Math.round(pr.top) + (cs ? (':' + cs.position) : ''));
                     }
                     var video = document.querySelector('video');
-                    parts.push('видео:' + (video ? Math.round(video.getBoundingClientRect().height) : 0));
+                    if (video) {
+                      var vr = video.getBoundingClientRect();
+                      parts.push('видео:' + Math.round(vr.height) + '@' + Math.round(vr.top));
+                    } else {
+                      parts.push('видео:нет');
+                    }
                     var app = document.querySelector('ytm-app');
                     if (app) {
                       var acs = getComputedStyle(app);
