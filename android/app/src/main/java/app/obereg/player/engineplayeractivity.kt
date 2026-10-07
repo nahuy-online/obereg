@@ -102,6 +102,12 @@ class EnginePlayerActivity : AppCompatActivity() {
             DiagLog.add("движок-плеер: свайп вниз — сворачиваю в окно")
             minimizeToPip()
         }
+        if (target.startsWith("obereg://layout")) {
+            val payload = android.net.Uri.decode(target.substringAfter("?", ""))
+            if (payload.isNotBlank()) {
+                DiagLog.add("движок-плеер: вёрстка — $payload")
+            }
+        }
     }
 
     /** Настройки плеера: скорость списком, прямой поток, перезагрузка. */
@@ -211,22 +217,17 @@ class EnginePlayerActivity : AppCompatActivity() {
                   var styl = document.createElement('style');
                   styl.id = 'oberegStyle';
                   styl.textContent =
-                    'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container, #header { display:none !important; height:0 !important; min-height:0 !important; }' +
-                    'ytm-app, :root { --ytm-header-height: 0px !important; }' +
-                    'html, body { padding-top:0 !important; margin-top:0 !important; background:#0b0d11 !important; }' +
-                    'ytm-player, #player-container, .player-container, #movie_player { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 990 !important; background:#000 !important; }';
+                    'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
+                    'ytm-player { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }';
                   (document.head || document.documentElement).appendChild(styl);
                 }
                 function hideChrome() {
                   ['ytm-header-bar', 'ytm-masthead', 'ytm-mobile-topbar-renderer', 'ytm-app-header', '#masthead-container'].forEach(function(sel){
-                    try {
-                      var el = document.querySelector(sel);
-                      if (el) { el.style.display = 'none'; el.style.height = '0px'; el.style.minHeight = '0px'; }
-                    } catch (e) { }
+                    try { var el = document.querySelector(sel); if (el) { el.style.display = 'none'; } } catch (e) { }
                   });
                 }
                 function attachSwipe() {
-                  var el = document.querySelector('ytm-player, #player-container, #movie_player');
+                  var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
                   if (!el || el.__oberegSwipe) { return; }
                   el.__oberegSwipe = true;
                   var startY = null;
@@ -238,9 +239,26 @@ class EnginePlayerActivity : AppCompatActivity() {
                     if (dy > 90) { try { location.href = 'obereg://minimize'; } catch (err) { } }
                   }, { passive: true });
                 }
+                function reportLayout() {
+                  try {
+                    if (window.__oberegLayoutSent) { return; }
+                    window.__oberegLayoutSent = true;
+                    var parts = [];
+                    var kids = document.body ? document.body.children : [];
+                    for (var i = 0; i < kids.length && i < 6; i++) {
+                      var k = kids[i];
+                      var h = k.getBoundingClientRect ? Math.round(k.getBoundingClientRect().height) : 0;
+                      parts.push((k.tagName || '?').toLowerCase() + ':' + h);
+                    }
+                    var video = document.querySelector('video');
+                    parts.push('video:' + (video ? Math.round(video.getBoundingClientRect().height) : 0));
+                    location.href = 'obereg://layout?' + encodeURIComponent(parts.join(' '));
+                  } catch (e) { }
+                }
                 ensureStyle();
                 hideChrome();
                 attachSwipe();
+                setTimeout(reportLayout, 4000);
                 setInterval(function(){
                   try {
                     ensureStyle();
