@@ -125,6 +125,7 @@ class EnginePlayerActivity : AppCompatActivity() {
     inner class HostBridge {
         @android.webkit.JavascriptInterface
         fun minimize() {
+            DiagLog.add("движок-плеер: свайп вниз — сворачиваю в окно")
             runOnUiThread { minimizeToPip() }
         }
 
@@ -243,7 +244,7 @@ class EnginePlayerActivity : AppCompatActivity() {
                   styl.id = 'oberegStyle';
                   styl.textContent =
                     'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
-                    'ytm-player { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }';
+                    'ytm-player, #player-container { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }';
                   (document.head || document.documentElement).appendChild(styl);
                 }
                 function hideChrome() {
@@ -252,21 +253,34 @@ class EnginePlayerActivity : AppCompatActivity() {
                   });
                 }
                 function attachSwipe() {
-                  var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
-                  if (!el || el.__oberegSwipe) { return; }
-                  el.__oberegSwipe = true;
-                  var startY = null;
-                  el.addEventListener('touchstart', function(e){ startY = e.touches[0].clientY; }, { passive: true });
-                  el.addEventListener('touchend', function(e){
-                    if (startY === null) { return; }
-                    var dy = e.changedTouches[0].clientY - startY;
-                    startY = null;
-                    if (dy > 90) {
-                      var h = host();
-                      if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }
-                      try { location.href = 'obereg://minimize'; } catch (err) { }
-                    }
-                  }, { passive: true });
+                  var els = [
+                    document.querySelector('ytm-player'),
+                    document.querySelector('#player-container'),
+                    document.querySelector('#movie_player'),
+                    document.querySelector('video')
+                  ];
+                  els.forEach(function(el) {
+                    if (!el || el.__oberegSwipe) { return; }
+                    el.__oberegSwipe = true;
+                    var startY = null;
+                    el.addEventListener('touchstart', function(e){ startY = e.touches[0].clientY; }, { passive: true });
+                    el.addEventListener('touchend', function(e){
+                      if (startY === null) { return; }
+                      var dy = e.changedTouches[0].clientY - startY;
+                      startY = null;
+                      if (dy > 90) {
+                        var h = host();
+                        if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }
+                        try { location.href = 'obereg://minimize'; } catch (err) { }
+                      }
+                    }, { passive: true });
+                  });
+                }
+                function pinPlayer() {
+                  try {
+                    var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                    if (el) { el.style.setProperty('top', '0px', 'important'); }
+                  } catch (e) { }
                 }
                 function reportLayout(tag) {
                   try {
@@ -294,6 +308,7 @@ class EnginePlayerActivity : AppCompatActivity() {
                 ensureStyle();
                 hideChrome();
                 attachSwipe();
+                pinPlayer();
                 setTimeout(function(){ reportLayout('в4с'); }, 4000);
                 setTimeout(function(){ reportLayout('в10с'); }, 10000);
                 setInterval(function(){
@@ -301,6 +316,7 @@ class EnginePlayerActivity : AppCompatActivity() {
                     ensureStyle();
                     hideChrome();
                     attachSwipe();
+                    pinPlayer();
                     var player = document.getElementById('movie_player');
                     var video = document.querySelector('video');
                     if (!video) { return; }
