@@ -220,6 +220,21 @@ class ProfileActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnProfileReport).setOnClickListener { copyReport() }
         findViewById<Button>(R.id.btnSavePromo).setOnClickListener { savePromo() }
         findViewById<Button>(R.id.btnProfileBack).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnProfileLogin).setOnClickListener {
+            val cookies = runCatching {
+                android.webkit.CookieManager.getInstance().getCookie("https://www.youtube.com/")
+            }.getOrNull()
+            if (PlayerApi.hasLoginCookies(cookies)) {
+                android.widget.Toast.makeText(this, "Вход выполнен ✓", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                startActivity(android.content.Intent(this, LoginActivity::class.java))
+            }
+        }
+        runCatching {
+            val cookies = android.webkit.CookieManager.getInstance().getCookie("https://www.youtube.com/")
+            findViewById<Button>(R.id.btnProfileLogin).text =
+                if (PlayerApi.hasLoginCookies(cookies)) "Вход выполнен ✓" else "Войти"
+        }
 
         render("настройки: изменения сохраняются сразу")
     }

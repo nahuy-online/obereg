@@ -91,6 +91,7 @@ class FeedActivity : AppCompatActivity() {
         findViewById<Button>(R.id.navSubs).setOnClickListener { showTab(TAB_SUBS) }
         findViewById<Button>(R.id.navLib).setOnClickListener { showTab(TAB_LIB) }
         playlistsPill.setOnClickListener { load(MODE_PLAYLISTS) }
+        findViewById<Button>(R.id.btnLibLogin).setOnClickListener { openLogin() }
 
         listView.setOnItemClickListener { _, _, position, _ ->
             when {
@@ -100,6 +101,14 @@ class FeedActivity : AppCompatActivity() {
         }
 
         showTab(TAB_MAIN)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (tab == TAB_LIB) {
+            findViewById<Button>(R.id.btnLibLogin).text =
+                if (loggedIn()) "Вход выполнен ✓" else "Войти в аккаунт"
+        }
     }
 
     override fun onDestroy() {
@@ -120,6 +129,9 @@ class FeedActivity : AppCompatActivity() {
         shortsView.visibility = if (name == TAB_SHORTS) TextView.VISIBLE else TextView.GONE
         listView.visibility = if (name == TAB_SHORTS) ListView.GONE else ListView.VISIBLE
         playlistsPill.visibility = if (name == TAB_LIB) TextView.VISIBLE else TextView.GONE
+        val loginButton = findViewById<Button>(R.id.btnLibLogin)
+        loginButton.visibility = if (name == TAB_LIB) TextView.VISIBLE else TextView.GONE
+        loginButton.text = if (loggedIn()) "Вход выполнен ✓" else "Войти в аккаунт"
 
         when (name) {
             TAB_MAIN -> load(MODE_RECOMMENDED)
@@ -131,6 +143,21 @@ class FeedActivity : AppCompatActivity() {
             }
         }
     }
+
+    /** Вход в аккаунт: окно входа; после него подписки и ленты оживают сами. */
+    private fun openLogin() {
+        if (loggedIn()) {
+            Toast.makeText(this, "Вход выполнен ✓", Toast.LENGTH_SHORT).show()
+            return
+        }
+        startActivity(android.content.Intent(this, LoginActivity::class.java))
+    }
+
+    private fun loggedIn(): Boolean = PlayerApi.hasLoginCookies(
+        runCatching {
+            android.webkit.CookieManager.getInstance().getCookie("https://www.youtube.com/")
+        }.getOrNull(),
+    )
 
     /** Библиотека: недавние ролики из локального списка. */
     private fun showRecents() {

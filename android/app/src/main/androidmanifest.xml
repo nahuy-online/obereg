@@ -51,6 +51,12 @@
             android:label="@string/player_title" />
 
         <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:label="@string/app_name" />
+
+        <activity
             android:name=".CatalogActivity"
             android:exported="false"
             android:label="@string/action_open_catalog" />

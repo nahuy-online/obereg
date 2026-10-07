@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0B0D11">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp">
+
+        <Button
+            android:id="@+id/btnLoginBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_icon"
+            android:backgroundTint="#161A21"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="‹ Назад"
+            android:textColor="#CFD8E6"
+            android:textSize="12sp" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/btnLoginDone"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_icon"
+            android:backgroundTint="#161A21"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="Готово"
+            android:textColor="#7AA2FF"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/loginStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:text="Войдите в аккаунт — приложение запомнит вход"
+        android:textColor="#8B93A5"
+        android:textSize="12sp" />
+
+    <WebView
+        android:id="@+id/loginView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>

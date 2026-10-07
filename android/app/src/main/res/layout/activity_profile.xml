@@ -98,6 +98,14 @@
             android:text="@string/profile_save" />
 
         <Button
+            android:id="@+id/btnProfileLogin"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="12sp"
+            android:text="Войти" />
+
+        <Button
             android:id="@+id/btnProfileBack"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

@@ -45,6 +45,9 @@ class EnginePlayerActivity : AppCompatActivity() {
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
         }
+        // Мост для страницы: свайп-сворачивание и диагностика вёрстки без переходов по адресам
+        // (навигация по своему адресу obereg:// доезжает не на всех движках, мост — надёжен).
+        webView.addJavascriptInterface(HostBridge(), "__oberegHost")
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 reloadTried = false
@@ -115,6 +118,19 @@ class EnginePlayerActivity : AppCompatActivity() {
             if (payload.isNotBlank()) {
                 DiagLog.add("движок-плеер: вёрстка — $payload")
             }
+        }
+    }
+
+    /** Мост странице: жесты и диагностика без переходов по адресам. */
+    inner class HostBridge {
+        @android.webkit.JavascriptInterface
+        fun minimize() {
+            runOnUiThread { minimizeToPip() }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun layout(report: String) {
+            DiagLog.add("движок-плеер: вёрстка — " + report.take(280))
         }
     }
 
@@ -220,6 +236,7 @@ class EnginePlayerActivity : AppCompatActivity() {
                 if (window.__oberegTuned) { return 'уже'; }
                 window.__oberegTuned = true;
                 window.__oberegRate = __RATE__;
+                function host() { return window.__oberegHost || null; }
                 function ensureStyle() {
                   if (document.getElementById('oberegStyle')) { return; }
                   var styl = document.createElement('style');
@@ -244,29 +261,41 @@ class EnginePlayerActivity : AppCompatActivity() {
                     if (startY === null) { return; }
                     var dy = e.changedTouches[0].clientY - startY;
                     startY = null;
-                    if (dy > 90) { try { location.href = 'obereg://minimize'; } catch (err) { } }
+                    if (dy > 90) {
+                      var h = host();
+                      if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }
+                      try { location.href = 'obereg://minimize'; } catch (err) { }
+                    }
                   }, { passive: true });
                 }
-                function reportLayout() {
+                function reportLayout(tag) {
                   try {
-                    if (window.__oberegLayoutSent) { return; }
-                    window.__oberegLayoutSent = true;
+                    var h = host();
+                    if (!h || !h.layout) { return; }
                     var parts = [];
+                    parts.push('scroll:' + Math.round(window.scrollY || 0));
                     var kids = document.body ? document.body.children : [];
-                    for (var i = 0; i < kids.length && i < 6; i++) {
+                    for (var i = 0; i < kids.length && i < 10; i++) {
                       var k = kids[i];
-                      var h = k.getBoundingClientRect ? Math.round(k.getBoundingClientRect().height) : 0;
-                      parts.push((k.tagName || '?').toLowerCase() + ':' + h);
+                      var r = k.getBoundingClientRect ? k.getBoundingClientRect() : { height: 0, top: 0 };
+                      parts.push((k.tagName || '?').toLowerCase() + ':' + Math.round(r.height) + '@' + Math.round(r.top));
+                    }
+                    var player = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                    if (player) {
+                      var pr = player.getBoundingClientRect();
+                      var cs = window.getComputedStyle ? getComputedStyle(player) : null;
+                      parts.push('игрок:' + Math.round(pr.height) + '@' + Math.round(pr.top) + (cs ? (':' + cs.position) : ''));
                     }
                     var video = document.querySelector('video');
-                    parts.push('video:' + (video ? Math.round(video.getBoundingClientRect().height) : 0));
-                    location.href = 'obereg://layout?' + encodeURIComponent(parts.join(' '));
+                    parts.push('видео:' + (video ? Math.round(video.getBoundingClientRect().height) : 0));
+                    h.layout(tag + ' ' + parts.join(' '));
                   } catch (e) { }
                 }
                 ensureStyle();
                 hideChrome();
                 attachSwipe();
-                setTimeout(reportLayout, 4000);
+                setTimeout(function(){ reportLayout('в4с'); }, 4000);
+                setTimeout(function(){ reportLayout('в10с'); }, 10000);
                 setInterval(function(){
                   try {
                     ensureStyle();
@@ -282,7 +311,11 @@ class EnginePlayerActivity : AppCompatActivity() {
                       else if (video.duration && isFinite(video.duration)) { video.currentTime = video.duration; }
                       video.muted = true;
                     } else {
-                      if (video.muted) { video.muted = false; }
+                      if (video.muted) {
+                        video.muted = false;
+                        try { if (player && player.unMute) { player.unMute(); } } catch (e) { }
+                        try { var un = document.querySelector('.ytp-unmute'); if (un) { un.click(); } } catch (e) { }
+                      }
                       if (Math.abs(video.playbackRate - window.__oberegRate) > 0.01) {
                         video.playbackRate = window.__oberegRate;
                       }

@@ -77,17 +77,36 @@
         android:textColor="#8B93A5"
         android:textSize="11sp" />
 
-    <Button
-        android:id="@+id/btnLibPlaylists"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="14dp"
-        android:layout_marginBottom="4dp"
-        android:background="@drawable/bg_icon"
-        android:text="Плейлисты"
-        android:textColor="#7AA2FF"
-        android:textSize="12sp"
-        android:visibility="gone" />
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp">
+
+        <Button
+            android:id="@+id/btnLibLogin"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_icon"
+            android:backgroundTint="#161A21"
+            android:text="Войти в аккаунт"
+            android:textColor="#7AA2FF"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnLibPlaylists"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_icon"
+            android:backgroundTint="#161A21"
+            android:text="Плейлисты"
+            android:textColor="#CFD8E6"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <FrameLayout
         android:layout_width="match_parent"
