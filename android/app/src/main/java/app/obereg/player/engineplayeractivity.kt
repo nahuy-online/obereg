@@ -31,6 +31,7 @@ class EnginePlayerActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var statusView: TextView
     private var speed = 1.0
+    private var reloadTried = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +47,7 @@ class EnginePlayerActivity : AppCompatActivity() {
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
+                reloadTried = false
                 injectTuning(view)
             }
 
@@ -82,7 +84,13 @@ class EnginePlayerActivity : AppCompatActivity() {
                     "движок-плеер: ошибка загрузки ($description)" + if (main) " [главный документ]" else "",
                 )
                 if (main) {
-                    render("движок-плеер: сеть капризничает — «Настройки» → «Перезагрузить страницу»")
+                    if (!reloadTried) {
+                        reloadTried = true
+                        render("движок-плеер: сеть капризничает — пробую ещё раз")
+                        view?.reload()
+                    } else {
+                        render("движок-плеер: сеть капризничает — «Настройки» → «Перезагрузить страницу»")
+                    }
                 }
             }
         }
