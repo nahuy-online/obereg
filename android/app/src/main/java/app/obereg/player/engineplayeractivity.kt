@@ -103,8 +103,8 @@ class EnginePlayerActivity : AppCompatActivity() {
             DiagLog.add("движок-плеер: открыт для $videoId (скорость ${speedLabel(speed)})")
             webView.loadUrl("https://www.youtube.com/watch?v=$videoId&hl=ru")
         }
-        findViewById<Button>(R.id.btnEngineBack).setOnClickListener { minimizeToPip() }
-        findViewById<Button>(R.id.btnEngineSettings).setOnClickListener { showSettings(videoId) }
+        findViewById<TextView>(R.id.btnEngineBack).setOnClickListener { minimizeToPip() }
+        findViewById<TextView>(R.id.btnEngineSettings).setOnClickListener { showSettings(videoId) }
     }
 
     /** Команды со страницы: свайп вниз по ролику и т.п. */
@@ -244,7 +244,8 @@ class EnginePlayerActivity : AppCompatActivity() {
                   styl.id = 'oberegStyle';
                   styl.textContent =
                     'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
-                    'ytm-player, #player-container { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }';
+                    'ytm-player, #player-container { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }' +
+                    'ytm-app { padding-top: 0 !important; }';
                   (document.head || document.documentElement).appendChild(styl);
                 }
                 function hideChrome() {
@@ -279,7 +280,14 @@ class EnginePlayerActivity : AppCompatActivity() {
                 function pinPlayer() {
                   try {
                     var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
-                    if (el) { el.style.setProperty('top', '0px', 'important'); }
+                    if (!el) { return; }
+                    el.style.setProperty('top', '0px', 'important');
+                    var top = Math.round(el.getBoundingClientRect().top);
+                    if (Math.abs(top) > 4) {
+                      var cs = getComputedStyle(el);
+                      var current = parseFloat(cs.marginTop) || 0;
+                      el.style.setProperty('margin-top', (current - top) + 'px', 'important');
+                    }
                   } catch (e) { }
                 }
                 function reportLayout(tag) {
@@ -302,6 +310,11 @@ class EnginePlayerActivity : AppCompatActivity() {
                     }
                     var video = document.querySelector('video');
                     parts.push('видео:' + (video ? Math.round(video.getBoundingClientRect().height) : 0));
+                    var app = document.querySelector('ytm-app');
+                    if (app) {
+                      var acs = getComputedStyle(app);
+                      parts.push('appPad:' + acs.paddingTop + ' appTop:' + Math.round(app.getBoundingClientRect().top));
+                    }
                     h.layout(tag + ' ' + parts.join(' '));
                   } catch (e) { }
                 }

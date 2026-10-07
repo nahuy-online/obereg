@@ -66,8 +66,8 @@ class LoginActivity : AppCompatActivity() {
         statusView.text = "Войдите в аккаунт — приложение запомнит вход"
         DiagLog.add("вход: окно открыто")
         webView.loadUrl("https://m.youtube.com/signin?hl=ru")
-        findViewById<Button>(R.id.btnLoginDone).setOnClickListener { finish() }
-        findViewById<Button>(R.id.btnLoginBack).setOnClickListener { finish() }
+        findViewById<TextView>(R.id.btnLoginDone).setOnClickListener { finish() }
+        findViewById<TextView>(R.id.btnLoginBack).setOnClickListener { finish() }
         handler.postDelayed(loginChecker, 3_000)
     }
 

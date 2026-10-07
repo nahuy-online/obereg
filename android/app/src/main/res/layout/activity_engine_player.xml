@@ -15,14 +15,17 @@
         android:paddingTop="6dp"
         android:paddingBottom="4dp">
 
-        <Button
+        <TextView
             android:id="@+id/btnEngineBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_icon"
-            android:backgroundTint="#161A21"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:text="‹ Свернуть"
             android:textColor="#CFD8E6"
             android:textSize="12sp" />
@@ -32,14 +35,17 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <Button
+        <TextView
             android:id="@+id/btnEngineSettings"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_icon"
-            android:backgroundTint="#161A21"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:text="⚙ Настройки"
             android:textColor="#7AA2FF"
             android:textSize="12sp" />
