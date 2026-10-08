@@ -11,6 +11,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 /**
  * Плеер на движке страницы.
@@ -20,8 +22,9 @@ import androidx.appcompat.app.AppCompatActivity
  * чужая шапка спрятана, а страница подтягивается по фактической позиции ролика,
  * чтобы не оставалось пустой полосы над плеером; ниже листается лента рекомендаций.
  * Свайп вниз по области ролика (плюс
- * «‹ Свернуть» и системная «Назад») уводят окно в системное «картинка-в-картинке» —
- * видео продолжает играть поверх других окон.
+ * «‹ Свернуть» и системная «Назад») уводят окно в системное «картинка-в-картинке»
+ * (видео продолжает играть поверх других окон) и открывают оболочку «Оберег» — так
+ * из плеера всегда есть выход к ленте и вкладкам.
  *
  * Настройки плеера — «⚙ Настройки»: скорость 1x-3x списком, переключение на
  * «Прямой поток» и перезагрузка. Выбранная скорость запоминается между запусками.
@@ -36,6 +39,12 @@ class EnginePlayerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_engine_player)
+        pipActivity?.get()?.let { old ->
+            if (old !== this) {
+                runCatching { old.finish() }
+            }
+            pipActivity = null
+        }
         val videoId = intent.getStringExtra("videoId") ?: ""
         speed = AppSettings.playerSpeed(this).toDouble()
         webView = findViewById(R.id.engineView)
@@ -48,9 +57,18 @@ class EnginePlayerActivity : AppCompatActivity() {
         // Мост для страницы: свайп-сворачивание и диагностика вёрстки без переходов по адресам
         // (навигация по своему адресу obereg:// доезжает не на всех движках, мост — надёжен).
         webView.addJavascriptInterface(HostBridge(), "__oberegHost")
+        runCatching {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(webView, EARLY_HIDE, setOf("*"))
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 reloadTried = false
+                injectTuning(view)
+            }
+
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
                 injectTuning(view)
             }
 
@@ -131,7 +149,7 @@ class EnginePlayerActivity : AppCompatActivity() {
 
         @android.webkit.JavascriptInterface
         fun layout(report: String) {
-            DiagLog.add("движок-плеер: вёрстка — " + report.take(280))
+            DiagLog.add("движок-плеер: вёрстка — " + report.take(460))
         }
     }
 
@@ -184,17 +202,31 @@ class EnginePlayerActivity : AppCompatActivity() {
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
                 .build()
-            return runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+            val ok = runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+            if (ok) pipActivity = java.lang.ref.WeakReference(this)
+            return ok
         }
         return false
     }
 
-    /** Свернуть в системное «картинка-в-картинке»: видео играет дальше поверх других окон. */
+    /**
+     * Свернуть в окно: видео продолжает играть поверх, а под окошком остаётся оболочка
+     * (она всегда лежит ниже плеера в стопке экранов). Если плеер открыт сам по себе —
+     * возвращаюсь в оболочку обычным переходом.
+     */
     private fun minimizeToPip() {
+        if (isTaskRoot) {
+            DiagLog.add("движок-плеер: открываю оболочку")
+            startActivity(android.content.Intent(this, FeedActivity::class.java))
+            finish()
+            return
+        }
         if (enterPip()) {
             DiagLog.add("движок-плеер: свернул в окно")
             return
         }
+        DiagLog.add("движок-плеер: окно недоступно — открываю оболочку")
+        startActivity(android.content.Intent(this, FeedActivity::class.java))
         finish()
     }
 
@@ -206,6 +238,9 @@ class EnginePlayerActivity : AppCompatActivity() {
         DiagLog.add(
             if (isInPictureInPictureMode) "движок-плеер: в окне" else "движок-плеер: развёрнут",
         )
+        if (!isInPictureInPictureMode && pipActivity?.get() === this) {
+            pipActivity = null
+        }
     }
 
     private fun render(text: String) {
@@ -236,6 +271,29 @@ class EnginePlayerActivity : AppCompatActivity() {
     }
 
     companion object {
+
+        /** Живое окошко: при запуске нового плеера старое окно закрывается, двух видео не бывает. */
+        private var pipActivity: java.lang.ref.WeakReference<EnginePlayerActivity>? = null
+
+        /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком. */
+        private val EARLY_HIDE = """
+            (function(){
+              try {
+                function put() {
+                  var d = document;
+                  var head = d.head || d.documentElement;
+                  if (!head) { setTimeout(put, 20); return; }
+                  if (d.getElementById('oberegEarly')) { return; }
+                  var s = d.createElement('style');
+                  s.id = 'oberegEarly';
+                  s.textContent = 'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display: none !important; }';
+                  head.appendChild(s);
+                }
+                put();
+              } catch (e) { }
+            })()
+        """.trimIndent()
+
         private val TUNING = """
             (function(){
               try {
@@ -248,13 +306,13 @@ class EnginePlayerActivity : AppCompatActivity() {
                   var styl = document.createElement('style');
                   styl.id = 'oberegStyle';
                   styl.textContent =
-                    'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
+                    'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
                     'ytm-player, #player-container { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }' +
                     'ytm-app { padding-top: 0 !important; }';
                   (document.head || document.documentElement).appendChild(styl);
                 }
                 function hideChrome() {
-                  ['ytm-header-bar', 'ytm-masthead', 'ytm-mobile-topbar-renderer', 'ytm-app-header', '#masthead-container'].forEach(function(sel){
+                  ['ytm-header-bar', 'ytm-masthead', 'ytm-mobile-topbar-header', 'ytm-mobile-topbar-renderer', 'ytm-app-header', '#masthead-container'].forEach(function(sel){
                     try { var el = document.querySelector(sel); if (el) { el.style.display = 'none'; } } catch (e) { }
                   });
                 }
@@ -317,13 +375,32 @@ class EnginePlayerActivity : AppCompatActivity() {
                     var video = document.querySelector('video');
                     if (!video) { return; }
                     var vt = Math.round(video.getBoundingClientRect().top);
-                    if (Math.abs(vt) > 4) {
-                      var body = document.body;
-                      if (body) {
-                        var cur = parseFloat(getComputedStyle(body).marginTop) || 0;
-                        var next = cur - vt;
-                        if (next > -160 && next < 160) {
-                          body.style.setProperty('margin-top', next + 'px', 'important');
+                    if (Math.abs(vt) > 3) {
+                      var node = video;
+                      var hops = 0;
+                      while (node && node !== document.documentElement && hops < 16) {
+                        if (node !== video && node.style) {
+                          var cs = getComputedStyle(node);
+                          var pos = cs.position || '';
+                          if ((pos === 'fixed' || pos === 'absolute' || pos === 'sticky') && (parseFloat(cs.top) || 0) > 0.5) {
+                            node.style.setProperty('top', '0px', 'important');
+                          }
+                          if ((parseFloat(cs.paddingTop) || 0) > 0.5) {
+                            node.style.setProperty('padding-top', '0px', 'important');
+                          }
+                          if ((parseFloat(cs.marginTop) || 0) > 0.5) {
+                            node.style.setProperty('margin-top', '0px', 'important');
+                          }
+                        }
+                        node = node.parentElement;
+                        hops++;
+                      }
+                      var vt2 = Math.round(video.getBoundingClientRect().top);
+                      if (Math.abs(vt2) > 3 && document.body) {
+                        var cur = parseFloat(getComputedStyle(document.body).marginTop) || 0;
+                        var next = cur - vt2;
+                        if (next > -220 && next < 220) {
+                          document.body.style.setProperty('margin-top', next + 'px', 'important');
                         }
                       }
                     }
@@ -360,6 +437,26 @@ class EnginePlayerActivity : AppCompatActivity() {
                       parts.push('appPad:' + acs.paddingTop + ' appTop:' + Math.round(app.getBoundingClientRect().top));
                     }
                     h.layout(tag + ' ' + parts.join(' '));
+                    if (video) {
+                      var chain = [];
+                      var node = video.parentElement;
+                      var hops = 0;
+                      while (node && hops < 10) {
+                        var ncs = getComputedStyle(node);
+                        var nr = node.getBoundingClientRect();
+                        chain.push(
+                          (node.tagName || '?').toLowerCase() + (node.id ? '#' + node.id : '') +
+                          '|' + Math.round(nr.height) + '@' + Math.round(nr.top) +
+                          '|' + (ncs.position || '').substring(0, 3) +
+                          '|p' + Math.round(parseFloat(ncs.paddingTop) || 0) +
+                          'm' + Math.round(parseFloat(ncs.marginTop) || 0)
+                        );
+                        if (node.tagName === 'BODY') { break; }
+                        node = node.parentElement;
+                        hops++;
+                      }
+                      h.layout(tag + ' цепь: ' + chain.join(' > '));
+                    }
                   } catch (e) { }
                 }
                 ensureStyle();
