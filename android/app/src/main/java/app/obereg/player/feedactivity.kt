@@ -39,6 +39,12 @@ class FeedActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var shortsView: TextView
     private lateinit var playlistsPill: Button
+    private lateinit var miniBar: android.widget.LinearLayout
+    private lateinit var miniHolder: android.widget.FrameLayout
+    private lateinit var miniTitle: TextView
+    private lateinit var miniSub: TextView
+    private lateinit var miniPlay: TextView
+    private lateinit var miniClose: TextView
     private var items: List<FeedItem> = emptyList()
     private var playlists: List<FeedCodec.PlaylistEntry> = emptyList()
     private var mode: String = MODE_RECOMMENDED
@@ -57,6 +63,24 @@ class FeedActivity : AppCompatActivity() {
         webView = findViewById(R.id.feedWebView)
         shortsView = findViewById(R.id.shortsStub)
         playlistsPill = findViewById(R.id.btnLibPlaylists)
+        miniBar = findViewById(R.id.miniPlayerBar)
+        miniHolder = findViewById(R.id.miniPlayerHolder)
+        miniTitle = findViewById(R.id.miniPlayerTitle)
+        miniSub = findViewById(R.id.miniPlayerSub)
+        miniPlay = findViewById(R.id.btnMiniPlay)
+        miniClose = findViewById(R.id.btnMiniClose)
+        miniPlay.setOnClickListener { PlayerSession.togglePlayPause() }
+        miniClose.setOnClickListener {
+            PlayerSession.release()
+            updateMini()
+        }
+        miniBar.setOnClickListener {
+            if (PlayerSession.active) {
+                startActivity(
+                    EnginePlayerActivity.createIntent(this, PlayerSession.videoId, PlayerSession.title),
+                )
+            }
+        }
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -109,11 +133,44 @@ class FeedActivity : AppCompatActivity() {
             findViewById<Button>(R.id.btnLibLogin).text =
                 if (loggedIn()) "Вход выполнен ✓" else "Войти в аккаунт"
         }
+        updateMini()
     }
 
     override fun onDestroy() {
         webView.destroy()
         super.onDestroy()
+    }
+
+    /** Мини-плеер: показываем, пока ролик жив и не ушёл в системное окно. */
+    private fun updateMini() {
+        if (PlayerSession.active && !PlayerSession.pipActive) {
+            miniBar.visibility = android.view.View.VISIBLE
+            PlayerSession.attachTo(miniHolder)
+            miniTitle.text = PlayerSession.title.ifBlank { PlayerSession.videoId }
+            miniSub.text = "играет в мини-плеере"
+            if (PlayerSession.consumeResumeAfterRebind()) {
+                miniHolder.postDelayed({ PlayerSession.resumeIfPaused() }, 350)
+            }
+            miniPlay.postDelayed(playStateCheck, 900)
+        } else {
+            miniBar.visibility = android.view.View.GONE
+        }
+    }
+
+    private val playStateCheck = object : Runnable {
+        override fun run() {
+            if (miniBar.visibility != android.view.View.VISIBLE) {
+                return
+            }
+            PlayerSession.videoPaused { paused ->
+                runOnUiThread {
+                    if (miniBar.visibility == android.view.View.VISIBLE) {
+                        miniPlay.text = if (paused) "▶" else "⏸"
+                    }
+                }
+            }
+            miniPlay.postDelayed(this, 2500)
+        }
     }
 
     /** Переключение вкладок оболочки. */
@@ -395,9 +452,12 @@ class FeedActivity : AppCompatActivity() {
     private fun openItem(item: FeedItem) {
         DiagLog.add("лента: открываю ${item.videoId}")
         AppSettings.pushRecent(this, item.videoId, item.title.ifEmpty { item.videoId }, item.channel)
-        EnginePlayerActivity.closeStalePip()
-        val intent = android.content.Intent(this, EnginePlayerActivity::class.java)
-        intent.putExtra("videoId", item.videoId)
+        PlayerSession.closeStalePip()
+        val intent = EnginePlayerActivity.createIntent(
+            this,
+            item.videoId,
+            item.title.ifEmpty { item.videoId },
+        )
         startActivity(intent)
     }
 

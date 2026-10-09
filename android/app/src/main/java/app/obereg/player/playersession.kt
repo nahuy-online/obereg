@@ -1,0 +1,523 @@
+package app.obereg.player
+
+import android.app.Activity
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.view.ViewGroup
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import java.lang.ref.WeakReference
+
+/**
+ * Сеанс ролика: один WebView живёт вне экранов и переносится между ними.
+ *
+ * Благодаря этому воспроизведение не прерывается: ролик можно развернуть на весь экран,
+ * свернуть в мини-плеер внизу оболочки или уйти в другое приложение — страница не
+ * перезагружается, а просто меняет хозяина, и видео продолжает играть.
+ *
+ * Настройка страницы (скрытие чужой шапки, привязка ролика к верху, свайп-сворачивание,
+ * пропуск рекламы, скорость) живёт здесь же, чтобы одинаково работать на обоих экранах.
+ */
+object PlayerSession {
+
+    /** Кто сейчас показывает ролик: экран плеера просит свернуть в мини-плеер по свайпу. */
+    interface Host {
+        fun onMinimizeRequested()
+    }
+
+    var host: Host? = null
+    var lastStatus: ((String) -> Unit)? = null
+
+    var videoId: String = ""
+        private set
+    var title: String = ""
+        private set
+    var speed: Double = 1.0
+        private set
+
+    private var web: WebView? = null
+    private var reloadTried = false
+    private var resumeAfterRebind = false
+
+    private var pipActivity: WeakReference<Activity>? = null
+
+    /** Ролик загружен и им можно пользоваться. */
+    val active: Boolean get() = web != null && videoId.isNotEmpty()
+
+    /** Ролик сейчас в системном окне «картинка-в-картинке». */
+    val pipActive: Boolean get() = pipActivity?.get()?.isInPictureInPictureMode == true
+
+    fun markPip(activity: Activity) { pipActivity = WeakReference(activity) }
+
+    fun clearPip(activity: Activity) {
+        if (pipActivity?.get() === activity) pipActivity = null
+    }
+
+    /** Закрыть живое окно со старым роликом: вызывается перед открытием нового. */
+    fun closeStalePip() {
+        pipActivity?.get()?.let { old -> runCatching { old.finish() } }
+        pipActivity = null
+    }
+
+    /** После сворачивания в мини-плеер один раз продолжить воспроизведение, если оно сбилось. */
+    fun requestResumeAfterRebind() { resumeAfterRebind = true }
+
+    fun consumeResumeAfterRebind(): Boolean {
+        val value = resumeAfterRebind
+        resumeAfterRebind = false
+        return value
+    }
+
+    /** Создать (один раз) WebView сеанса. */
+    fun ensure(context: Context): WebView {
+        web?.let { return it }
+        val view = WebView(context.applicationContext)
+        view.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+        }
+        view.setBackgroundColor(0xFF000000.toInt())
+        view.addJavascriptInterface(Bridge(), "__oberegHost")
+        runCatching {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(view, TUNING_EARLY, setOf("*"))
+            }
+        }
+        view.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(v: WebView?, url: String?) {
+                reloadTried = false
+                injectTuning(v)
+            }
+
+            override fun onPageCommitVisible(v: WebView?, url: String?) {
+                injectTuning(v)
+            }
+
+            override fun shouldOverrideUrlLoading(
+                v: WebView?,
+                request: WebResourceRequest?,
+            ): Boolean {
+                val target = request?.url?.toString().orEmpty()
+                if (target.startsWith("obereg://")) {
+                    innerCommand(target)
+                    return true
+                }
+                return false
+            }
+
+            @Suppress("DEPRECATION")
+            override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean {
+                val target = url.orEmpty()
+                if (target.startsWith("obereg://")) {
+                    innerCommand(target)
+                    return true
+                }
+                return false
+            }
+
+            override fun onReceivedError(
+                v: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?,
+            ) {
+                val main = request?.isForMainFrame == true
+                val description = error?.description?.toString() ?: "ошибка сети"
+                DiagLog.add(
+                    "движок-плеер: ошибка загрузки ($description)" + if (main) " [главный документ]" else "",
+                )
+                if (main) {
+                    if (!reloadTried) {
+                        reloadTried = true
+                        post("движок-плеер: сеть капризничает — пробую ещё раз")
+                        v?.reload()
+                    } else {
+                        post("движок-плеер: сеть капризничает — «Перезагрузить» в меню скорости")
+                    }
+                }
+            }
+        }
+        speed = AppSettings.playerSpeed(context).toDouble()
+        web = view
+        return view
+    }
+
+    /** Открыть ролик: если это тот же ролик — просто продолжаем, если новый — грузим. */
+    fun open(context: Context, id: String, videoTitle: String) {
+        val view = ensure(context)
+        title = videoTitle
+        if (id.isBlank()) {
+            post("движок-плеер: не передан идентификатор ролика")
+            return
+        }
+        if (videoId != id || view.url.isNullOrEmpty()) {
+            videoId = id
+            DiagLog.add("движок-плеер: открыт для $id (скорость ${speedLabel(speed)})")
+            view.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru")
+        }
+    }
+
+    /** Показать ролик в указанном контейнере (экран плеера или мини-плеер оболочки). */
+    fun attachTo(container: FrameLayout) {
+        val view = web ?: return
+        if (view.parent === container) { return }
+        (view.parent as? ViewGroup)?.removeView(view)
+        container.removeAllViews()
+        container.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    /** Убрать ролик с экрана, не выключая воспроизведение. */
+    fun detach() {
+        (web?.parent as? ViewGroup)?.removeView(web)
+    }
+
+    fun togglePlayPause() {
+        web?.evaluateJavascript(
+            "(function(){var v=document.querySelector('video'); if(!v){return 'нет';}" +
+                " if(v.paused){v.play();return 'play';} v.pause(); return 'pause';})()",
+        ) { _ -> }
+    }
+
+    /** Продолжить, если видео встало на паузу (после сворачивания в окно/мини-плеер). */
+    fun resumeIfPaused() {
+        web?.evaluateJavascript(
+            "(function(){var v=document.querySelector('video'); if(v && v.paused){try{v.play();}catch(e){}} return 'ok';})()",
+        ) { _ -> }
+    }
+
+    fun videoPaused(callback: (Boolean) -> Unit) {
+        web?.evaluateJavascript(
+            "(function(){var v=document.querySelector('video'); return v&&v.paused?'1':'0';})()",
+        ) { raw ->
+            callback(PlayerApi.decodeJsString(raw) == "1")
+        }
+    }
+
+    fun applySpeed(context: Context, rate: Double) {
+        speed = rate
+        AppSettings.setPlayerSpeed(context, rate.toFloat())
+        web?.evaluateJavascript(
+            "window.__oberegRate = $rate; (function(){var v=document.querySelector('video'); if(v){v.playbackRate=$rate;}})(); 'ok'",
+        ) { _ -> }
+    }
+
+    fun reload() { web?.reload() }
+
+    /** Закрыть ролик совсем: страница уничтожается, мини-плеер прячется. */
+    fun release() {
+        detach()
+        runCatching { web?.destroy() }
+        web = null
+        videoId = ""
+        title = ""
+        resumeAfterRebind = false
+    }
+
+    private fun post(text: String) {
+        DiagLog.add(text)
+        lastStatus?.invoke(text)
+    }
+
+    private fun innerCommand(target: String) {
+        if (target.startsWith("obereg://minimize")) {
+            DiagLog.add("движок-плеер: свайп вниз — сворачиваю в мини-плеер")
+            host?.onMinimizeRequested()
+        }
+        if (target.startsWith("obereg://layout")) {
+            val payload = android.net.Uri.decode(target.substringAfter("?", ""))
+            if (payload.isNotBlank()) {
+                DiagLog.add("движок-плеер: вёрстка — $payload")
+            }
+        }
+    }
+
+    /** Мост странице: жесты и диагностика без переходов по адресам. */
+    private class Bridge {
+        @android.webkit.JavascriptInterface
+        fun minimize() {
+            DiagLog.add("движок-плеер: свайп вниз — сворачиваю в мини-плеер")
+            Handler(Looper.getMainLooper()).post { host?.onMinimizeRequested() }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun layout(report: String) {
+            DiagLog.add("движок-плеер: вёрстка — " + report.take(460))
+        }
+    }
+
+    private fun injectTuning(view: WebView?) {
+        view ?: return
+        val script = TUNING.replace("__RATE__", speed.toString())
+        view.evaluateJavascript(script) { raw ->
+            val answer = PlayerApi.decodeJsString(raw)
+            if (answer == "готово") {
+                DiagLog.add("движок-плеер: тюнинг установлен")
+                lastStatus?.invoke("")
+            }
+        }
+    }
+
+    private fun speedLabel(rate: Double): String = when (rate) {
+        1.0 -> "1×"
+        1.25 -> "1,25×"
+        1.5 -> "1,5×"
+        2.0 -> "2×"
+        2.5 -> "2,5×"
+        3.0 -> "3×"
+        else -> "$rate×"
+    }
+
+    /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком. */
+    private val TUNING_EARLY = """
+        (function(){
+          try {
+            function put() {
+              var d = document;
+              var head = d.head || d.documentElement;
+              if (!head) { setTimeout(put, 20); return; }
+              if (d.getElementById('oberegEarly')) { return; }
+              var s = d.createElement('style');
+              s.id = 'oberegEarly';
+              s.textContent = 'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display: none !important; }';
+              head.appendChild(s);
+            }
+            put();
+          } catch (e) { }
+        })()
+    """.trimIndent()
+
+    private val TUNING = """
+        (function(){
+          try {
+            if (window.__oberegTuned) { return 'уже'; }
+            window.__oberegTuned = true;
+            window.__oberegRate = __RATE__;
+            function host() { return window.__oberegHost || null; }
+            function ensureStyle() {
+              if (document.getElementById('oberegStyle')) { return; }
+              var styl = document.createElement('style');
+              styl.id = 'oberegStyle';
+              styl.textContent =
+                'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
+                'ytm-player, #player-container { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }' +
+                'ytm-app { padding-top: 0 !important; }' +
+                'ytm-chip-cloud-renderer, ytm-chips-bar-renderer, ytm-chips-bar, ytm-hashtag-header, #chips-wrapper { display:none !important; }';
+              (document.head || document.documentElement).appendChild(styl);
+            }
+            function hideChrome() {
+              ['ytm-header-bar', 'ytm-masthead', 'ytm-mobile-topbar-header', 'ytm-mobile-topbar-renderer', 'ytm-app-header', '#masthead-container'].forEach(function(sel){
+                try { var el = document.querySelector(sel); if (el) { el.style.display = 'none'; } } catch (e) { }
+              });
+            }
+            function hideChips() {
+              try {
+                var quick = document.querySelectorAll('ytm-chip-cloud-renderer, ytm-chips-bar-renderer, ytm-chips-bar, ytm-hashtag-header, ytm-hashtag-header-view-model, #chips-wrapper, [class*="chip-cloud"], [class*="chips-bar"]');
+                for (var i = 0; i < quick.length; i++) { quick[i].style.display = 'none'; }
+              } catch (e) { }
+            }
+            function hideChipsFull() {
+              try {
+                var nodes = document.getElementsByTagName('*');
+                for (var j = 0; j < nodes.length; j++) {
+                  var tn = (nodes[j].tagName || '').toLowerCase();
+                  if (tn.indexOf('chip') >= 0 || tn.indexOf('hashtag') >= 0) { nodes[j].style.display = 'none'; }
+                }
+              } catch (e) { }
+            }
+            function attachSwipe() {
+              if (!window.__oberegSwipeDoc) {
+                window.__oberegSwipeDoc = true;
+                var startY = null;
+                var startX = null;
+                var overPlayer = false;
+                document.addEventListener('touchstart', function(e){
+                  try {
+                    var t = e.touches[0];
+                    startY = t.clientY;
+                    startX = t.clientX;
+                    var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                    var r = el ? el.getBoundingClientRect() : null;
+                    overPlayer = !!(r && t.clientY >= r.top && t.clientY <= r.bottom && t.clientX >= r.left && t.clientX <= r.right);
+                  } catch (err) { startY = null; }
+                }, { passive: true, capture: true });
+                document.addEventListener('touchend', function(e){
+                  if (startY === null || !overPlayer) { startY = null; return; }
+                  var t = e.changedTouches[0];
+                  var dy = t.clientY - startY;
+                  var dx = Math.abs(t.clientX - startX);
+                  startY = null;
+                  if (dy > 90 && dx < dy) {
+                    var h = host();
+                    if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }
+                    try { location.href = 'obereg://minimize'; } catch (err) { }
+                  }
+                }, { passive: true, capture: true });
+              }
+              var els = [
+                document.querySelector('ytm-player'),
+                document.querySelector('#player-container'),
+                document.querySelector('#movie_player'),
+                document.querySelector('video')
+              ];
+              els.forEach(function(el) {
+                if (!el || el.__oberegSwipe) { return; }
+                el.__oberegSwipe = true;
+                var elStartY = null;
+                el.addEventListener('touchstart', function(e){ elStartY = e.touches[0].clientY; }, { passive: true });
+                el.addEventListener('touchend', function(e){
+                  if (elStartY === null) { return; }
+                  var dy = e.changedTouches[0].clientY - elStartY;
+                  elStartY = null;
+                  if (dy > 90) {
+                    var h = host();
+                    if (h && h.minimize) { try { h.minimize(); return; } catch (err) { } }
+                    try { location.href = 'obereg://minimize'; } catch (err) { }
+                  }
+                }, { passive: true });
+              });
+            }
+            function pinPlayer() {
+              try {
+                var el = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                if (el) { el.style.setProperty('top', '0px', 'important'); }
+                var video = document.querySelector('video');
+                if (!video) { return; }
+                var vt = Math.round(video.getBoundingClientRect().top);
+                if (Math.abs(vt) > 3) {
+                  var node = video;
+                  var hops = 0;
+                  while (node && node !== document.documentElement && hops < 16) {
+                    if (node !== video && node.style) {
+                      var cs = getComputedStyle(node);
+                      var pos = cs.position || '';
+                      if ((pos === 'fixed' || pos === 'absolute' || pos === 'sticky') && (parseFloat(cs.top) || 0) > 0.5) {
+                        node.style.setProperty('top', '0px', 'important');
+                      }
+                      if ((parseFloat(cs.paddingTop) || 0) > 0.5) {
+                        node.style.setProperty('padding-top', '0px', 'important');
+                      }
+                      if ((parseFloat(cs.marginTop) || 0) > 0.5) {
+                        node.style.setProperty('margin-top', '0px', 'important');
+                      }
+                    }
+                    node = node.parentElement;
+                    hops++;
+                  }
+                  var vt2 = Math.round(video.getBoundingClientRect().top);
+                  if (Math.abs(vt2) > 3 && document.body) {
+                    var cur = parseFloat(getComputedStyle(document.body).marginTop) || 0;
+                    var next = cur - vt2;
+                    if (next > -220 && next < 220) {
+                      document.body.style.setProperty('margin-top', next + 'px', 'important');
+                    }
+                  }
+                }
+              } catch (e) { }
+            }
+            function reportLayout(tag) {
+              try {
+                var h = host();
+                if (!h || !h.layout) { return; }
+                var parts = [];
+                parts.push('scroll:' + Math.round(window.scrollY || 0));
+                var kids = document.body ? document.body.children : [];
+                for (var i = 0; i < kids.length && i < 10; i++) {
+                  var k = kids[i];
+                  var r = k.getBoundingClientRect ? k.getBoundingClientRect() : { height: 0, top: 0 };
+                  parts.push((k.tagName || '?').toLowerCase() + ':' + Math.round(r.height) + '@' + Math.round(r.top));
+                }
+                var player = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                if (player) {
+                  var pr = player.getBoundingClientRect();
+                  var cs = window.getComputedStyle ? getComputedStyle(player) : null;
+                  parts.push('игрок:' + Math.round(pr.height) + '@' + Math.round(pr.top) + (cs ? (':' + cs.position) : ''));
+                }
+                var video = document.querySelector('video');
+                if (video) {
+                  var vr = video.getBoundingClientRect();
+                  parts.push('видео:' + Math.round(vr.height) + '@' + Math.round(vr.top));
+                } else {
+                  parts.push('видео:нет');
+                }
+                var app = document.querySelector('ytm-app');
+                if (app) {
+                  var acs = getComputedStyle(app);
+                  parts.push('appPad:' + acs.paddingTop + ' appTop:' + Math.round(app.getBoundingClientRect().top));
+                }
+                h.layout(tag + ' ' + parts.join(' '));
+                if (video) {
+                  var chain = [];
+                  var node = video.parentElement;
+                  var hops = 0;
+                  while (node && hops < 10) {
+                    var ncs = getComputedStyle(node);
+                    var nr = node.getBoundingClientRect();
+                    chain.push(
+                      (node.tagName || '?').toLowerCase() + (node.id ? '#' + node.id : '') +
+                      '|' + Math.round(nr.height) + '@' + Math.round(nr.top) +
+                      '|' + (ncs.position || '').substring(0, 3) +
+                      '|p' + Math.round(parseFloat(ncs.paddingTop) || 0) +
+                      'm' + Math.round(parseFloat(ncs.marginTop) || 0)
+                    );
+                    if (node.tagName === 'BODY') { break; }
+                    node = node.parentElement;
+                    hops++;
+                  }
+                  h.layout(tag + ' цепь: ' + chain.join(' > '));
+                }
+              } catch (e) { }
+            }
+            ensureStyle();
+            hideChrome();
+            hideChips();
+            attachSwipe();
+            pinPlayer();
+            setTimeout(function(){ hideChipsFull(); }, 2500);
+            setTimeout(function(){ hideChipsFull(); }, 6000);
+            setTimeout(function(){ reportLayout('в4с'); }, 4000);
+            setTimeout(function(){ reportLayout('в10с'); }, 10000);
+            setInterval(function(){
+              try {
+                ensureStyle();
+                hideChrome();
+                hideChips();
+                attachSwipe();
+                pinPlayer();
+                var player = document.getElementById('movie_player');
+                var video = document.querySelector('video');
+                if (!video) { return; }
+                var ad = player && player.classList.contains('ad-showing');
+                if (ad) {
+                  var skip = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+                  if (skip) { skip.click(); }
+                  else if (video.duration && isFinite(video.duration)) { video.currentTime = video.duration; }
+                  video.muted = true;
+                } else {
+                  if (video.muted) {
+                    video.muted = false;
+                    try { if (player && player.unMute) { player.unMute(); } } catch (e) { }
+                    try { var un = document.querySelector('.ytp-unmute'); if (un) { un.click(); } } catch (e) { }
+                  }
+                  if (Math.abs(video.playbackRate - window.__oberegRate) > 0.01) {
+                    video.playbackRate = window.__oberegRate;
+                  }
+                }
+              } catch (e) { }
+            }, 400);
+            return 'готово';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
+}

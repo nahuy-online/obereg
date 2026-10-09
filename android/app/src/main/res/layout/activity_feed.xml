@@ -139,6 +139,86 @@
             android:layout_height="1dp" />
     </FrameLayout>
 
+    <!-- Мини-плеер: ролик продолжает играть внизу приложения, как в GreenTuber -->
+    <LinearLayout
+        android:id="@+id/miniPlayerBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#161A21"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:id="@+id/miniPlayerHolder"
+            android:layout_width="106dp"
+            android:layout_height="60dp"
+            android:background="#000000" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/miniPlayerTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text=""
+                android:textColor="#EEF1F6"
+                android:textSize="12.5sp" />
+
+            <TextView
+                android:id="@+id/miniPlayerSub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="играет в мини-плеере"
+                android:textColor="#8B93A5"
+                android:textSize="10.5sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnMiniPlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_icon"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="13dp"
+            android:paddingEnd="13dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:text="⏯"
+            android:textColor="#EEF1F6"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/btnMiniClose"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_icon"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="13dp"
+            android:paddingEnd="13dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:text="✕"
+            android:textColor="#8B93A5"
+            android:textSize="13sp" />
+    </LinearLayout>
+
     <!-- Нижняя навигация: Главная / Shorts / Подписки / Библиотека -->
     <LinearLayout
         android:layout_width="match_parent"

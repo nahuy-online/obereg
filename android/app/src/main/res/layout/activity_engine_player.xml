@@ -6,6 +6,7 @@
     android:background="#0B0D11">
 
     <LinearLayout
+        android:id="@+id/engineTopBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -22,13 +23,13 @@
             android:background="@drawable/bg_icon"
             android:clickable="true"
             android:focusable="true"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
-            android:text="‹ Свернуть"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:text="‹"
             android:textColor="#CFD8E6"
-            android:textSize="12sp" />
+            android:textSize="15sp" />
 
         <Space
             android:layout_width="0dp"
@@ -36,26 +37,43 @@
             android:layout_weight="1" />
 
         <TextView
-            android:id="@+id/btnEngineSettings"
+            android:id="@+id/btnEngineSpeed"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_icon"
             android:clickable="true"
             android:focusable="true"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
-            android:text="⚙ Настройки"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:text="1×"
+            android:textColor="#EEF1F6"
+            android:textSize="12.5sp" />
+
+        <TextView
+            android:id="@+id/btnEnginePip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_icon"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:text="▢ В окне"
             android:textColor="#7AA2FF"
-            android:textSize="12sp" />
+            android:textSize="12.5sp" />
     </LinearLayout>
 
-    <WebView
-        android:id="@+id/engineView"
+    <FrameLayout
+        android:id="@+id/engineHolder"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:background="#000000" />
 
     <TextView
         android:id="@+id/engineStatus"
