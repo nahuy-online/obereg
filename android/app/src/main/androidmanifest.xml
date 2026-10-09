@@ -46,7 +46,7 @@
         <activity
             android:name=".EnginePlayerActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|layoutDirection"
             android:supportsPictureInPicture="true"
             android:label="@string/player_title" />
 

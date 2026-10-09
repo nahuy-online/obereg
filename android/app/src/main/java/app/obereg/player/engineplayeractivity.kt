@@ -1,7 +1,10 @@
 package app.obereg.player
 
 import android.app.AlertDialog
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -39,12 +42,6 @@ class EnginePlayerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_engine_player)
-        pipActivity?.get()?.let { old ->
-            if (old !== this) {
-                runCatching { old.finish() }
-            }
-            pipActivity = null
-        }
         val videoId = intent.getStringExtra("videoId") ?: ""
         speed = AppSettings.playerSpeed(this).toDouble()
         webView = findViewById(R.id.engineView)
@@ -196,11 +193,24 @@ class EnginePlayerActivity : AppCompatActivity() {
         minimizeToPip()
     }
 
-    /** Попытка входа в «картинка-в-картинке». */
+    /** Попытка входа в «картинка-в-картинке»; в меню окошка есть кнопка «Оберег» — открыть ленту. */
     private fun enterPip(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val openShell = PendingIntent.getActivity(
+                this,
+                0,
+                android.content.Intent(this, FeedActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val openAction = RemoteAction(
+                Icon.createWithResource(this, R.drawable.ic_nav_home),
+                "Оберег",
+                "Открыть ленту",
+                openShell,
+            )
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
+                .setActions(listOf(openAction))
                 .build()
             val ok = runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
             if (ok) pipActivity = java.lang.ref.WeakReference(this)
@@ -238,7 +248,9 @@ class EnginePlayerActivity : AppCompatActivity() {
         DiagLog.add(
             if (isInPictureInPictureMode) "движок-плеер: в окне" else "движок-плеер: развёрнут",
         )
-        if (!isInPictureInPictureMode && pipActivity?.get() === this) {
+        if (isInPictureInPictureMode) {
+            pipActivity = java.lang.ref.WeakReference(this)
+        } else if (pipActivity?.get() === this) {
             pipActivity = null
         }
     }
@@ -272,8 +284,14 @@ class EnginePlayerActivity : AppCompatActivity() {
 
     companion object {
 
-        /** Живое окошко: при запуске нового плеера старое окно закрывается, двух видео не бывает. */
+        /** Живое окошко (картинка-в-картинке) — чтобы перед новым роликом закрыть старое. */
         private var pipActivity: java.lang.ref.WeakReference<EnginePlayerActivity>? = null
+
+        /** Закрыть живое окошко со старым роликом: вызывается перед открытием нового. */
+        fun closeStalePip() {
+            pipActivity?.get()?.let { old -> runCatching { old.finish() } }
+            pipActivity = null
+        }
 
         /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком. */
         private val EARLY_HIDE = """

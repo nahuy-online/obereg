@@ -395,6 +395,7 @@ class FeedActivity : AppCompatActivity() {
     private fun openItem(item: FeedItem) {
         DiagLog.add("лента: открываю ${item.videoId}")
         AppSettings.pushRecent(this, item.videoId, item.title.ifEmpty { item.videoId }, item.channel)
+        EnginePlayerActivity.closeStalePip()
         val intent = android.content.Intent(this, EnginePlayerActivity::class.java)
         intent.putExtra("videoId", item.videoId)
         startActivity(intent)
