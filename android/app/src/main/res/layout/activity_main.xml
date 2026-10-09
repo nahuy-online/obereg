@@ -89,6 +89,43 @@
             android:text="@string/action_clear_log" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="Сервер («реальный» туннель): адрес:порт SOCKS5, логин, пароль"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/upstreamAddr"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="например, 1.2.3.4:1080"
+            android:inputType="textUri"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/upstreamUser"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="логин"
+            android:inputType="text"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/upstreamPass"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="пароль"
+            android:inputType="textPassword"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btnSaveUpstream"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Сохранить и перезапустить туннель" />
+
+        <TextView
             android:id="@+id/output"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

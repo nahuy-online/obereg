@@ -148,9 +148,6 @@ class FeedActivity : AppCompatActivity() {
             PlayerSession.attachTo(miniHolder)
             miniTitle.text = PlayerSession.title.ifBlank { PlayerSession.videoId }
             miniSub.text = "играет в мини-плеере"
-            if (PlayerSession.consumeResumeAfterRebind()) {
-                miniHolder.postDelayed({ PlayerSession.resumeIfPaused() }, 350)
-            }
             miniPlay.postDelayed(playStateCheck, 900)
         } else {
             miniBar.visibility = android.view.View.GONE

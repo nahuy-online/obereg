@@ -43,7 +43,7 @@ object PlayerSession {
 
     private var web: WebView? = null
     private var reloadTried = false
-    private var resumeAfterRebind = false
+    private var wantPlay = true
 
     private var pipActivity: WeakReference<Activity>? = null
 
@@ -65,13 +65,27 @@ object PlayerSession {
         pipActivity = null
     }
 
-    /** После сворачивания в мини-плеер один раз продолжить воспроизведение, если оно сбилось. */
-    fun requestResumeAfterRebind() { resumeAfterRebind = true }
+    /** Запомнить, что ролик сейчас играет: после переезда между экранами вернём игру. */
+    fun captureWantPlay() {
+        videoPaused { paused -> wantPlay = !paused }
+    }
 
-    fun consumeResumeAfterRebind(): Boolean {
-        val value = resumeAfterRebind
-        resumeAfterRebind = false
-        return value
+    fun syncWantPlay() {
+        videoPaused { paused -> wantPlay = !paused }
+    }
+
+    /**
+     * Несколько попыток продолжить воспроизведение после переезда: страница сервиса
+     * иногда сама ставит паузу, когда окно меняет размер — подстраховываемся с запасом.
+     */
+    fun scheduleResumeAttempts() {
+        val handler = Handler(Looper.getMainLooper())
+        listOf(400L, 1000L, 2000L, 3200L).forEach { delay ->
+            handler.postDelayed({
+                if (!wantPlay) { return@postDelayed }
+                videoPaused { paused -> if (paused) { resumeIfPaused() } }
+            }, delay)
+        }
     }
 
     /** Создать (один раз) WebView сеанса. */
@@ -188,6 +202,26 @@ object PlayerSession {
             "(function(){var v=document.querySelector('video'); if(!v){return 'нет';}" +
                 " if(v.paused){v.play();return 'play';} v.pause(); return 'pause';})()",
         ) { _ -> }
+        Handler(Looper.getMainLooper()).postDelayed({ syncWantPlay() }, 400)
+    }
+
+    /** Кнопка play/pause из системного окна: переключить и обновить значок в окне. */
+    fun togglePlayPauseFromPip() {
+        togglePlayPause()
+        val handler = Handler(Looper.getMainLooper())
+        handler.postDelayed({ updatePipParams() }, 600)
+        handler.postDelayed({ updatePipParams() }, 1700)
+    }
+
+    /** Обновить значок play/pause в системном окне по текущему состоянию ролика. */
+    fun updatePipParams() {
+        val activity = pipActivity?.get() as? EnginePlayerActivity ?: return
+        web?.evaluateJavascript(
+            "(function(){var v=document.querySelector('video'); return v&&v.paused?'1':'0';})()",
+        ) { raw ->
+            val playing = PlayerApi.decodeJsString(raw) != "1"
+            Handler(Looper.getMainLooper()).post { activity.applyPipParams(playing) }
+        }
     }
 
     /** Продолжить, если видео встало на паузу (после сворачивания в окно/мини-плеер). */
@@ -203,6 +237,11 @@ object PlayerSession {
         ) { raw ->
             callback(PlayerApi.decodeJsString(raw) == "1")
         }
+    }
+
+    /** Режим системного окна: в окошке показываем только ролик — на весь кадр. */
+    fun applyPipLayout(on: Boolean) {
+        web?.evaluateJavascript(APPLY_PIP_JS.replace("__ON__", if (on) "true" else "false")) { _ -> }
     }
 
     fun applySpeed(context: Context, rate: Double) {
@@ -222,7 +261,7 @@ object PlayerSession {
         web = null
         videoId = ""
         title = ""
-        resumeAfterRebind = false
+        wantPlay = true
     }
 
     private fun post(text: String) {
@@ -278,6 +317,29 @@ object PlayerSession {
         3.0 -> "3×"
         else -> "$rate×"
     }
+
+    /** Вставляет/убирает стиль «только ролик на весь кадр» для системного окна. */
+    private val APPLY_PIP_JS = """
+        (function(){
+          try {
+            var on = __ON__;
+            var st = document.getElementById('oberegPipCss');
+            if (on) {
+              if (!st) {
+                st = document.createElement('style');
+                st.id = 'oberegPipCss';
+                st.textContent = 'html,body{background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
+                (document.head || document.documentElement).appendChild(st);
+              }
+              var v = document.querySelector('video');
+              if (v) { try { v.setAttribute('playsinline',''); } catch (e) { } }
+            } else if (st && st.parentNode) {
+              st.parentNode.removeChild(st);
+            }
+          } catch (e) { }
+          return 'ok';
+        })()
+    """.trimIndent()
 
     /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком. */
     private val TUNING_EARLY = """

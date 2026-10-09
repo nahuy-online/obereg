@@ -86,6 +86,21 @@ object AppSettings {
     /** Недавние видео: локальный список последних открытых (Библиотека). */
     fun recents(context: Context): String = prefs(context).getString(KEY_RECENTS, "") ?: ""
 
+    /** Сервер-выход («реальный» туннель): адрес SOCKS5-релея и доступ. */
+    fun upstreamAddress(context: Context): String = prefs(context).getString("upstream_addr", "") ?: ""
+
+    fun upstreamUser(context: Context): String = prefs(context).getString("upstream_user", "") ?: ""
+
+    fun upstreamPassword(context: Context): String = prefs(context).getString("upstream_password", "") ?: ""
+
+    fun setUpstream(context: Context, address: String, user: String, password: String) {
+        prefs(context).edit()
+            .putString("upstream_addr", address.trim())
+            .putString("upstream_user", user.trim())
+            .putString("upstream_password", password)
+            .apply()
+    }
+
     fun pushRecent(context: Context, videoId: String, title: String, channel: String) {
         prefs(context).edit()
             .putString(KEY_RECENTS, SettingsCodec.recentOrder(recents(context), videoId, title, channel))

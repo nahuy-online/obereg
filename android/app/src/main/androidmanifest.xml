@@ -68,6 +68,10 @@
             android:label="@string/action_open_youtube"
             android:hardwareAccelerated="true" />
 
+        <receiver
+            android:name=".PipControls"
+            android:exported="false" />
+
         <service
             android:name=".TunnelService"
             android:exported="false"

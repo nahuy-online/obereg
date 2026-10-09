@@ -99,13 +99,38 @@ object CoreHolder {
                 JSONObject()
                     .put("listen_addr", "127.0.0.1:0")
                     .put("mode", mode)
-                    .put("upstream", JSONObject.NULL)
+                    .put("upstream", upstreamConfig(context))
                     .put("handshake_timeout_ms", 5000)
                     .put("idle_timeout_ms", 30000),
             )
         val json = config.toString()
         configJson = json
         return json
+    }
+
+    /** Сервер-выход («реальный» туннель): SOCKS5-релей из настроек, иначе прямое соединение. */
+    private fun upstreamConfig(context: Context): Any {
+        val address = AppSettings.upstreamAddress(context).trim()
+        if (address.isEmpty()) {
+            return JSONObject.NULL
+        }
+        val upstream = JSONObject()
+            .put("kind", "socks5")
+            .put("addr", address)
+        val user = AppSettings.upstreamUser(context)
+        if (user.isNotEmpty()) {
+            upstream.put("username", user)
+        }
+        val password = AppSettings.upstreamPassword(context)
+        if (password.isNotEmpty()) {
+            upstream.put("password", password)
+        }
+        return upstream
+    }
+
+    /** Забыть кэш конфига: следующий старт соберёт заново (после смены сервера). */
+    fun invalidateConfig() {
+        configJson = null
     }
 
     /** Желаемый режим транспорта из настроек. */

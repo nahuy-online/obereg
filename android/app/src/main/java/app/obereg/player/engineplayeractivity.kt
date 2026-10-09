@@ -20,7 +20,8 @@ import androidx.appcompat.app.AppCompatActivity
  *
  * Ролик живёт в общем сеансе (PlayerSession), поэтому переключения его не рвут:
  * «‹» и свайп вниз уводят ролик в мини-плеер внизу оболочки (видео продолжает играть),
- * а отдельная кнопка «В окне» отправляет его в системное окно поверх других приложений.
+ * а отдельная кнопка «В окне» отправляет его в системное окно поверх других приложений
+ * (в окошке виден только ролик, плюс кнопка play/pause).
  * Скорость — чип «1×» в шапке. Пока идёт «картинка-в-картинке», вся наша шапка скрыта,
  * чтобы в окошке был только ролик.
  */
@@ -79,7 +80,8 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
     /** Свернуть в мини-плеер: ролик переезжает вниз оболочки и продолжает играть. */
     private fun collapseToMini() {
         DiagLog.add("движок-плеер: сворачиваю в мини-плеер")
-        PlayerSession.requestResumeAfterRebind()
+        PlayerSession.captureWantPlay()
+        PlayerSession.scheduleResumeAttempts()
         PlayerSession.detach()
         if (isTaskRoot) {
             startActivity(Intent(this, FeedActivity::class.java))
@@ -87,33 +89,48 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         finish()
     }
 
-    /** Системное окно «картинка-в-картинке» — отдельная кнопка. */
+    /** Системное окно «картинка-в-картинке» — отдельная кнопка. В окошке — только ролик и play/pause. */
     private fun enterPip() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return
         }
-        val openShell = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, FeedActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val openAction = RemoteAction(
-            Icon.createWithResource(this, R.drawable.ic_nav_home),
-            "Оберег",
-            "Открыть ленту",
-            openShell,
-        )
-        val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
-            .setActions(listOf(openAction))
-            .build()
-        val ok = runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+        val ok = runCatching { enterPictureInPictureMode(pipParams(playing = true)) }.getOrDefault(false)
         if (ok) {
             DiagLog.add("движок-плеер: свернул в окно")
             PlayerSession.markPip(this)
         } else {
             DiagLog.add("движок-плеер: окно недоступно")
+        }
+    }
+
+    /** Параметры окна: пропорции ролика и кнопка play/pause. */
+    private fun pipParams(playing: Boolean): PictureInPictureParams {
+        val toggle = PendingIntent.getBroadcast(
+            this,
+            1,
+            Intent(this, PipControls::class.java).setAction(PipControls.ACTION_TOGGLE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val label = if (playing) "Пауза" else "Играть"
+        val action = RemoteAction(
+            Icon.createWithResource(
+                this,
+                if (playing) R.drawable.ic_pip_pause else R.drawable.ic_pip_play,
+            ),
+            label,
+            label,
+            toggle,
+        )
+        return PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .setActions(listOf(action))
+            .build()
+    }
+
+    /** Обновить кнопку в окне (вызывает сеанс ролика). */
+    fun applyPipParams(playing: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+            runCatching { setPictureInPictureParams(pipParams(playing)) }
         }
     }
 
@@ -130,9 +147,13 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         statusView.visibility = visibility
         if (isInPictureInPictureMode) {
             PlayerSession.markPip(this)
-            holder.postDelayed({ PlayerSession.resumeIfPaused() }, 350)
+            PlayerSession.applyPipLayout(true)
+            PlayerSession.captureWantPlay()
+            PlayerSession.scheduleResumeAttempts()
+            holder.postDelayed({ PlayerSession.updatePipParams() }, 700)
         } else {
             PlayerSession.clearPip(this)
+            PlayerSession.applyPipLayout(false)
         }
     }
 

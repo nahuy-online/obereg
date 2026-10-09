@@ -111,6 +111,29 @@ class MainActivity : AppCompatActivity() {
             log("лог очищен")
         }
 
+        // Сервер-выход («реальный» туннель): адрес релея и доступ.
+        val upstreamAddrField = findViewById<android.widget.EditText>(R.id.upstreamAddr)
+        val upstreamUserField = findViewById<android.widget.EditText>(R.id.upstreamUser)
+        val upstreamPassField = findViewById<android.widget.EditText>(R.id.upstreamPass)
+        upstreamAddrField.setText(AppSettings.upstreamAddress(this))
+        upstreamUserField.setText(AppSettings.upstreamUser(this))
+        upstreamPassField.setText(AppSettings.upstreamPassword(this))
+        findViewById<Button>(R.id.btnSaveUpstream).setOnClickListener {
+            AppSettings.setUpstream(
+                this,
+                upstreamAddrField.text.toString(),
+                upstreamUserField.text.toString(),
+                upstreamPassField.text.toString(),
+            )
+            CoreHolder.invalidateConfig()
+            log("сервер сохранён, перезапускаю туннель")
+            toast("Сохранил, перезапускаю туннель")
+            safe("перезапуск с сервером") {
+                TunnelService.stop(this)
+                handler.postDelayed({ TunnelService.start(this) }, 800)
+            }
+        }
+
         requestNotificationPermissionIfNeeded()
 
         // Автозапуск: пользователь должен увидеть результат, ничего не нажимая.
