@@ -57,6 +57,8 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         PlayerSession.host = this
         if (!PlayerSession.pipActive) {
             PlayerSession.attachTo(holder)
+            // Страховка: если вышли из окна без события, вернём обычную вёрстку страницы.
+            PlayerSession.applyPipLayout(false)
         }
         speedChip.text = speedLabel(PlayerSession.speed)
     }

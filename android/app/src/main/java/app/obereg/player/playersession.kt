@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -91,7 +92,7 @@ object PlayerSession {
     /** Создать (один раз) WebView сеанса. */
     fun ensure(context: Context): WebView {
         web?.let { return it }
-        val view = WebView(context.applicationContext)
+        val view = SessionWebView(context.applicationContext)
         view.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -215,11 +216,8 @@ object PlayerSession {
     }
 
     fun togglePlayPause() {
-        web?.evaluateJavascript(
-            "(function(){var v=document.querySelector('video'); if(!v){return 'нет';}" +
-                " if(v.paused){v.play();return 'play';} v.pause(); return 'pause';})()",
-        ) { _ -> }
-        Handler(Looper.getMainLooper()).postDelayed({ syncWantPlay() }, 400)
+        web?.evaluateJavascript(JS_TOGGLE) { _ -> }
+        Handler(Looper.getMainLooper()).postDelayed({ syncWantPlay() }, 500)
     }
 
     /** Кнопка play/pause из системного окна: переключить и обновить значок в окне. */
@@ -233,9 +231,7 @@ object PlayerSession {
     /** Обновить значок play/pause в системном окне по текущему состоянию ролика. */
     fun updatePipParams() {
         val activity = pipActivity?.get() as? EnginePlayerActivity ?: return
-        web?.evaluateJavascript(
-            "(function(){var v=document.querySelector('video'); return v&&v.paused?'1':'0';})()",
-        ) { raw ->
+        web?.evaluateJavascript(JS_PAUSED) { raw ->
             val playing = PlayerApi.decodeJsString(raw) != "1"
             Handler(Looper.getMainLooper()).post { activity.applyPipParams(playing) }
         }
@@ -243,15 +239,11 @@ object PlayerSession {
 
     /** Продолжить, если видео встало на паузу (после сворачивания в окно/мини-плеер). */
     fun resumeIfPaused() {
-        web?.evaluateJavascript(
-            "(function(){var v=document.querySelector('video'); if(v && v.paused){try{v.play();}catch(e){}} return 'ok';})()",
-        ) { _ -> }
+        web?.evaluateJavascript(JS_RESUME) { _ -> }
     }
 
     fun videoPaused(callback: (Boolean) -> Unit) {
-        web?.evaluateJavascript(
-            "(function(){var v=document.querySelector('video'); return v&&v.paused?'1':'0';})()",
-        ) { raw ->
+        web?.evaluateJavascript(JS_PAUSED) { raw ->
             callback(PlayerApi.decodeJsString(raw) == "1")
         }
     }
@@ -335,30 +327,178 @@ object PlayerSession {
         else -> "$rate×"
     }
 
+    /** WebView, который всегда считает своё окно видимым: иначе Chromium сам ставит ролик на паузу. */
+    private class SessionWebView(context: Context) : WebView(context) {
+        override fun onWindowVisibilityChanged(visibility: Int) {
+            super.onWindowVisibilityChanged(View.VISIBLE)
+        }
+    }
+
+    /** Играет ли ролик: сначала спрашиваем сам плеер сервиса, при сомнении — элемент видео. */
+    private val JS_PAUSED = """
+        (function(){
+          try {
+            var p = document.getElementById('movie_player');
+            try {
+              if (p && typeof p.getPlayerState === 'function') {
+                var s = p.getPlayerState();
+                if (s === 1 || s === 3) { return '0'; }
+                if (s === 2 || s === 5 || s === -1) { return '1'; }
+              }
+            } catch (e) { }
+            var v = document.querySelector('video');
+            return v && v.paused ? '1' : '0';
+          } catch (e) { return '1'; }
+        })()
+    """.trimIndent()
+
+    /** Продолжить воспроизведение: через API плеера сервиса и сам элемент видео. */
+    private val JS_RESUME = """
+        (function(){
+          try {
+            var p = document.getElementById('movie_player');
+            var played = false;
+            try { if (p && typeof p.playVideo === 'function') { p.playVideo(); played = true; } } catch (e) { }
+            var v = document.querySelector('video');
+            if (v && v.paused) {
+              try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
+            }
+            return played ? 'api' : 'ok';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
+
+    /** Переключить play/pause: через API плеера сервиса, с запасным путём по элементу. */
+    private val JS_TOGGLE = """
+        (function(){
+          try {
+            var p = document.getElementById('movie_player');
+            var v = document.querySelector('video');
+            var playing = null;
+            try {
+              if (p && typeof p.getPlayerState === 'function') {
+                var s = p.getPlayerState();
+                playing = (s === 1 || s === 3);
+              }
+            } catch (e) { }
+            if (playing === null) { playing = v ? !v.paused : false; }
+            if (playing) {
+              try { if (p && typeof p.pauseVideo === 'function') { p.pauseVideo(); } } catch (e) { }
+              try { if (v) { v.pause(); } } catch (e) { }
+              return '2';
+            }
+            try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
+            try { if (v) { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } } catch (e) { }
+            return '1';
+          } catch (e) { return '0'; }
+        })()
+    """.trimIndent()
+
     /** Вставляет/убирает стиль «только ролик на весь кадр» для системного окна. */
     private val APPLY_PIP_JS = """
         (function(){
+          function pipCss() {
+            return 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
+          }
+          function enforcePipVideo(force) {
+            try {
+              var v = document.querySelector('video');
+              if (!v) { return; }
+              if (force) {
+                v.style.setProperty('position', 'fixed', 'important');
+                v.style.setProperty('top', '0', 'important');
+                v.style.setProperty('left', '0', 'important');
+                v.style.setProperty('width', '100vw', 'important');
+                v.style.setProperty('height', '100vh', 'important');
+                v.style.setProperty('max-width', 'none', 'important');
+                v.style.setProperty('max-height', 'none', 'important');
+                v.style.setProperty('object-fit', 'contain', 'important');
+                v.style.setProperty('z-index', '2147483646', 'important');
+                v.style.setProperty('background', '#000', 'important');
+              } else {
+                ['position','top','left','width','height','max-width','max-height','object-fit','z-index','background'].forEach(function(k){
+                  try { v.style.removeProperty(k); } catch (e) { }
+                });
+              }
+            } catch (e) { }
+          }
+          function isolatePip() {
+            try {
+              var v = document.querySelector('video');
+              if (!v) { return; }
+              if (!window.__oberegPipHidden) { window.__oberegPipHidden = []; }
+              var node = v;
+              var guard = 0;
+              while (node && node !== document.body && guard < 20) {
+                var parent = node.parentElement;
+                if (!parent) { break; }
+                var kids = parent.children;
+                for (var i = 0; i < kids.length; i++) {
+                  var k = kids[i];
+                  if (k === node) { continue; }
+                  if (k.contains && k.contains(v)) { continue; }
+                  if (k.style && k.style.display !== 'none') {
+                    k.style.setProperty('display', 'none', 'important');
+                    window.__oberegPipHidden.push(k);
+                  }
+                }
+                node = parent;
+                guard++;
+              }
+            } catch (e) { }
+          }
+          function restorePip() {
+            try {
+              var arr = window.__oberegPipHidden || [];
+              for (var i = 0; i < arr.length; i++) {
+                try { arr[i].style.removeProperty('display'); } catch (e) { }
+              }
+              window.__oberegPipHidden = [];
+            } catch (e) { }
+          }
           try {
             var on = __ON__;
+            window.__oberegPipMode = on;
             var st = document.getElementById('oberegPipCss');
             if (on) {
               if (!st) {
                 st = document.createElement('style');
                 st.id = 'oberegPipCss';
-                st.textContent = 'html,body{background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
                 (document.head || document.documentElement).appendChild(st);
               }
+              st.textContent = pipCss();
+              enforcePipVideo(true);
+              isolatePip();
               var v = document.querySelector('video');
               if (v) { try { v.setAttribute('playsinline',''); } catch (e) { } }
-            } else if (st && st.parentNode) {
-              st.parentNode.removeChild(st);
+              setTimeout(function(){
+                try {
+                  var h = window.__oberegHost;
+                  var v2 = document.querySelector('video');
+                  var css = document.getElementById('oberegPipCss') ? 'да' : 'нет';
+                  if (h && h.layout) {
+                    if (v2) {
+                      var r = v2.getBoundingClientRect();
+                      h.layout('окно: стиль=' + css + ' видео ' + Math.round(r.width) + 'x' + Math.round(r.height) + '@' + Math.round(r.left) + ',' + Math.round(r.top) + ' поз=' + (getComputedStyle(v2).position || ''));
+                    } else {
+                      h.layout('окно: стиль=' + css + ' видео нет');
+                    }
+                  }
+                } catch (e) { }
+              }, 1800);
+            } else {
+              if (st && st.parentNode) { st.parentNode.removeChild(st); }
+              enforcePipVideo(false);
+              restorePip();
             }
           } catch (e) { }
           return 'ok';
         })()
     """.trimIndent()
 
-    /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком. */
+    /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком.
+     *  Плюс: страница всегда считает себя видимой — иначе сервис сам ставит ролик на паузу
+     *  при сворачивании, в окне и в фоне. */
     private val TUNING_EARLY = """
         (function(){
           try {
@@ -373,6 +513,17 @@ object PlayerSession {
               head.appendChild(s);
             }
             put();
+          } catch (e) { }
+          try {
+            function eater(e) { try { e.stopImmediatePropagation(); } catch (err) { } }
+            window.addEventListener('visibilitychange', eater, true);
+            window.addEventListener('webkitvisibilitychange', eater, true);
+            document.addEventListener('visibilitychange', eater, true);
+            document.addEventListener('webkitvisibilitychange', eater, true);
+            try { Object.defineProperty(Document.prototype, 'hidden', { get: function () { return false; }, configurable: true }); } catch (e) { }
+            try { Object.defineProperty(Document.prototype, 'visibilityState', { get: function () { return 'visible'; }, configurable: true }); } catch (e) { }
+            try { Object.defineProperty(Document.prototype, 'webkitHidden', { get: function () { return false; }, configurable: true }); } catch (e) { }
+            try { Object.defineProperty(Document.prototype, 'webkitVisibilityState', { get: function () { return 'visible'; }, configurable: true }); } catch (e) { }
           } catch (e) { }
         })()
     """.trimIndent()
@@ -412,6 +563,57 @@ object PlayerSession {
                 for (var j = 0; j < nodes.length; j++) {
                   var tn = (nodes[j].tagName || '').toLowerCase();
                   if (tn.indexOf('chip') >= 0 || tn.indexOf('hashtag') >= 0) { nodes[j].style.display = 'none'; }
+                }
+              } catch (e) { }
+            }
+            function guardPip() {
+              try {
+                if (window.__oberegPipMode === true) {
+                  var st = document.getElementById('oberegPipCss');
+                  if (!st) {
+                    st = document.createElement('style');
+                    st.id = 'oberegPipCss';
+                    (document.head || document.documentElement).appendChild(st);
+                  }
+                  st.textContent = 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
+                  var v = document.querySelector('video');
+                  if (v) {
+                    v.style.setProperty('position', 'fixed', 'important');
+                    v.style.setProperty('top', '0', 'important');
+                    v.style.setProperty('left', '0', 'important');
+                    v.style.setProperty('width', '100vw', 'important');
+                    v.style.setProperty('height', '100vh', 'important');
+                    v.style.setProperty('max-width', 'none', 'important');
+                    v.style.setProperty('max-height', 'none', 'important');
+                    v.style.setProperty('object-fit', 'contain', 'important');
+                    v.style.setProperty('z-index', '2147483646', 'important');
+                    v.style.setProperty('background', '#000', 'important');
+                  }
+                  if (!window.__oberegPipHidden) { window.__oberegPipHidden = []; }
+                  var node = v;
+                  var guard = 0;
+                  while (node && node !== document.body && guard < 20) {
+                    var parent = node.parentElement;
+                    if (!parent) { break; }
+                    var kids = parent.children;
+                    for (var ki = 0; ki < kids.length; ki++) {
+                      var k = kids[ki];
+                      if (k === node) { continue; }
+                      if (k.contains && k.contains(v)) { continue; }
+                      if (k.style && k.style.display !== 'none') {
+                        k.style.setProperty('display', 'none', 'important');
+                        window.__oberegPipHidden.push(k);
+                      }
+                    }
+                    node = parent;
+                    guard++;
+                  }
+                } else {
+                  var arr = window.__oberegPipHidden || [];
+                  for (var ai = 0; ai < arr.length; ai++) {
+                    try { arr[ai].style.removeProperty('display'); } catch (e) { }
+                  }
+                  if (arr.length) { window.__oberegPipHidden = []; }
                 }
               } catch (e) { }
             }
@@ -561,10 +763,10 @@ object PlayerSession {
             ensureStyle();
             hideChrome();
             hideChips();
+            guardPip();
             attachSwipe();
             pinPlayer();
-            setTimeout(function(){ hideChipsFull(); }, 2500);
-            setTimeout(function(){ hideChipsFull(); }, 6000);
+            setTimeout(function(){ hideChipsFull(); }, 2600);
             setTimeout(function(){ reportLayout('в4с'); }, 4000);
             setTimeout(function(){ reportLayout('в10с'); }, 10000);
             setInterval(function(){
@@ -572,6 +774,7 @@ object PlayerSession {
                 ensureStyle();
                 hideChrome();
                 hideChips();
+                guardPip();
                 attachSwipe();
                 pinPlayer();
                 var player = document.getElementById('movie_player');
