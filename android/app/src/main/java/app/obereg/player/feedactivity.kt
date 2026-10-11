@@ -54,6 +54,9 @@ class FeedActivity : AppCompatActivity() {
     /** Одна повторная попытка спросить данные у движка: страница иногда достраивается позже. */
     private var engineRetried = false
 
+    /** Оболочка следит, когда ролик закрыт (например, кнопкой в медиа-уведомлении). */
+    private val releaseWatcher: () -> Unit = { runOnUiThread { updateMini() } }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_feed)
@@ -74,6 +77,7 @@ class FeedActivity : AppCompatActivity() {
             PlayerSession.release()
             updateMini()
         }
+        PlayerSession.onReleased = releaseWatcher
         miniBar.setOnClickListener {
             if (PlayerSession.active) {
                 startActivity(
@@ -145,6 +149,9 @@ class FeedActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (PlayerSession.onReleased === releaseWatcher) {
+            PlayerSession.onReleased = null
+        }
         webView.destroy()
         super.onDestroy()
     }

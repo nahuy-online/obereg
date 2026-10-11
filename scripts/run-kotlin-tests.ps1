@@ -59,8 +59,10 @@ $sources = @(
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\Feed.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\TokenProbe.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\player\TokenStore.kt"),
+    (Join-Path $repo "android\app\src\main\java\app\obereg\player\PlaybackCodec.kt"),
     (Join-Path $repo "android\app\src\main\java\app\obereg\core\CoreBridge.kt"),
-    (Join-Path $repo "android\app\src\test\java\app\obereg\player\YouTubeExtractorTest.kt")
+    (Join-Path $repo "android\app\src\test\java\app\obereg\player\YouTubeExtractorTest.kt"),
+    (Join-Path $repo "android\app\src\test\java\app\obereg\player\PlaybackCodecTest.kt")
 )
 
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -72,6 +74,6 @@ Write-Output "Компиляция тестов оболочки..."
 if ($LASTEXITCODE -ne 0) { throw "компиляция не удалась" }
 
 Write-Output "Запуск тестов..."
-& $java -cp "$out;$classpath" org.junit.runner.JUnitCore app.obereg.player.YouTubeExtractorTest
+& $java -cp "$out;$classpath" org.junit.runner.JUnitCore app.obereg.player.YouTubeExtractorTest app.obereg.player.PlaybackCodecTest
 if ($LASTEXITCODE -ne 0) { throw "тесты оболочки не прошли" }
 Write-Output "Тесты оболочки пройдены."

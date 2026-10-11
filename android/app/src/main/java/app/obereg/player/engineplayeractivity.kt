@@ -50,6 +50,22 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         PlayerSession.lastStatus = { text -> runOnUiThread { statusView.text = text } }
         PlayerSession.open(this, videoId, videoTitle)
         PlayerSession.attachTo(holder)
+        requestNotificationPermissionIfNeeded()
+    }
+
+    /** Медиа-уведомление: на новых системах нужно разрешение — спросим при первом ролике. */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return
+        }
+        val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            DiagLog.add("движок-плеер: спрашиваю разрешение на уведомление")
+            runCatching {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
     }
 
     override fun onResume() {

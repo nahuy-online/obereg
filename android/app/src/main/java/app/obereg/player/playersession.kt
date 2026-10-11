@@ -48,6 +48,18 @@ object PlayerSession {
 
     private var pipActivity: WeakReference<Activity>? = null
 
+    /** Контекст приложения: чтобы поднять/остановить службу медиа-уведомления. */
+    private var appContext: Context? = null
+
+    /** Последние данные «пульса» страницы — в журнал пишем только перемены. */
+    private var lastPlaying: Boolean? = null
+    private var lastResumeTryAt = 0L
+    private var lastNote = ""
+    private var lastNoteAt = 0L
+
+    /** Оболочка обновляет мини-плеер, когда ролик закрыт из уведомления или уведомление убрано. */
+    var onReleased: (() -> Unit)? = null
+
     /** Ролик загружен и им можно пользоваться. */
     val active: Boolean get() = web != null && videoId.isNotEmpty()
 
@@ -68,11 +80,14 @@ object PlayerSession {
 
     /** Запомнить, что ролик сейчас играет: после переезда между экранами вернём игру. */
     fun captureWantPlay() {
-        videoPaused { paused -> wantPlay = !paused }
+        web?.evaluateJavascript(JS_CAPTURE) { raw ->
+            wantPlay = PlayerApi.decodeJsString(raw) != "0"
+            pushWantToJs()
+        }
     }
 
     fun syncWantPlay() {
-        videoPaused { paused -> wantPlay = !paused }
+        captureWantPlay()
     }
 
     /**
@@ -81,7 +96,7 @@ object PlayerSession {
      */
     fun scheduleResumeAttempts() {
         val handler = Handler(Looper.getMainLooper())
-        listOf(400L, 1000L, 2000L, 3200L, 5000L).forEach { delay ->
+        listOf(300L, 800L, 1600L, 2800L, 4500L).forEach { delay ->
             handler.postDelayed({
                 if (!wantPlay) { return@postDelayed }
                 videoPaused { paused -> if (paused) { resumeIfPaused() } }
@@ -159,6 +174,7 @@ object PlayerSession {
             }
         }
         speed = AppSettings.playerSpeed(context).toDouble()
+        appContext = context.applicationContext
         web = view
         return view
     }
@@ -184,9 +200,21 @@ object PlayerSession {
         }
         if (videoId != id || view.url.isNullOrEmpty()) {
             videoId = id
+            wantPlay = true
+            lastPlaying = null
             DiagLog.add("движок-плеер: открыт для $id (скорость ${speedLabel(speed)})")
             val url = if (id.startsWith("http")) id else "https://www.youtube.com/watch?v=$id&hl=ru"
             view.loadUrl(url)
+            PlaybackService.ensure(context)
+            PlaybackService.update(
+                playing = false,
+                positionMs = 0,
+                durationMs = 0,
+                title = videoTitle.ifBlank { id },
+                channel = "",
+                videoId = PlaybackCodec.sanitizeVideoId(id),
+                loop = false,
+            )
         }
     }
 
@@ -207,6 +235,27 @@ object PlayerSession {
             ),
         )
         keepAlive()
+        wakeAfterAttach()
+    }
+
+    /**
+     * После переезда WebView будим страницу: подтверждаем «хочу играть» и, если сервис
+     * успел встать на паузу, сразу продолжаем — без долгой серии попыток.
+     */
+    private fun wakeAfterAttach() {
+        pushWantToJs()
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!wantPlay) { return@postDelayed }
+            videoPaused { paused -> if (paused) { resumeIfPaused() } }
+        }, 150)
+    }
+
+    /** Сказать странице, что мы хотим играть: страж паузы пропускает только своё. */
+    fun pushWantToJs() {
+        val flag = if (wantPlay) "true" else "false"
+        web?.evaluateJavascript(
+            "(function(){ try { window.__oberegWantPlay = $flag; if ($flag) { window.__oberegAllowPause = false; } return 'ok'; } catch (e) { return 'сбой'; } })()",
+        ) { _ -> }
     }
 
     /** Убрать ролик с экрана, не выключая воспроизведение. */
@@ -216,8 +265,21 @@ object PlayerSession {
     }
 
     fun togglePlayPause() {
-        web?.evaluateJavascript(JS_TOGGLE) { _ -> }
-        Handler(Looper.getMainLooper()).postDelayed({ syncWantPlay() }, 500)
+        web?.evaluateJavascript(JS_TOGGLE) { raw ->
+            when (PlayerApi.decodeJsString(raw)) {
+                "1" -> wantPlay = true
+                "2" -> wantPlay = false
+            }
+            pushWantToJs()
+            pushStateQuick()
+        }
+    }
+
+    /** Дать уведомлению свежее состояние сразу, не дожидаясь очередного «пульса». */
+    fun pushStateQuick() {
+        web?.evaluateJavascript(JS_SNAPSHOT) { raw ->
+            onMediaPulse(PlayerApi.decodeJsString(raw).orEmpty())
+        }
     }
 
     /** Кнопка play/pause из системного окна: переключить и обновить значок в окне. */
@@ -263,7 +325,7 @@ object PlayerSession {
 
     fun reload() { web?.reload() }
 
-    /** Закрыть ролик совсем: страница уничтожается, мини-плеер прячется. */
+    /** Закрыть ролик совсем: страница уничтожается, мини-плеер прячется, уведомление исчезает. */
     fun release() {
         detach()
         runCatching { web?.destroy() }
@@ -271,6 +333,111 @@ object PlayerSession {
         videoId = ""
         title = ""
         wantPlay = true
+        lastPlaying = null
+        appContext?.let { PlaybackService.stop(it) }
+        val callback = onReleased
+        Handler(Looper.getMainLooper()).post { callback?.invoke() }
+    }
+
+    // ==== Управление из медиа-уведомления и с кнопок гарнитуры ====
+
+    /** Играть (из уведомления или с кнопки гарнитуры). */
+    fun mediaPlay() {
+        wantPlay = true
+        pushWantToJs()
+        web?.evaluateJavascript(JS_RESUME) { _ -> }
+        pushStateQuick()
+    }
+
+    /** Пауза по нашей кнопке (уведомление или гарнитура). */
+    fun mediaPause() {
+        wantPlay = false
+        pushWantToJs()
+        web?.evaluateJavascript(JS_PAUSE) { _ -> }
+        pushStateQuick()
+    }
+
+    /** Следующий ролик. */
+    fun mediaNext() {
+        DiagLog.add("движок-плеер: дальше (из уведомления)")
+        wantPlay = true
+        web?.evaluateJavascript(JS_NEXT) { raw ->
+            if (PlayerApi.decodeJsString(raw) == "нет") {
+                DiagLog.add("движок-плеер: у сервиса нет кнопки «дальше»")
+            }
+        }
+        handlerResumeSoon()
+    }
+
+    /** Предыдущий ролик (или в начало, если сервис не умеет). */
+    fun mediaPrevious() {
+        DiagLog.add("движок-плеер: назад (из уведомления)")
+        wantPlay = true
+        web?.evaluateJavascript(JS_PREV) { _ -> }
+        handlerResumeSoon()
+    }
+
+    /** Переключить повтор текущего ролика. */
+    fun mediaRepeat() {
+        web?.evaluateJavascript(JS_REPEAT) { raw ->
+            val answer = PlayerApi.decodeJsString(raw)
+            DiagLog.add(
+                "движок-плеер: повтор " + when (answer) {
+                    "on" -> "включён"
+                    "off" -> "выключен"
+                    else -> "не переключился"
+                },
+            )
+            pushStateQuick()
+        }
+    }
+
+    /** Перемотка из уведомления (миллисекунды). */
+    fun mediaSeek(positionMs: Long) {
+        val seconds = PlaybackCodec.clampSeekMs(positionMs, 0) / 1000.0
+        web?.evaluateJavascript(JS_SEEK.replace("__S__", seconds.toString())) { _ -> }
+    }
+
+    /** Закрыть ролик из уведомления: страница освобождается, уведомление исчезает. */
+    fun mediaClose() {
+        DiagLog.add("движок-плеер: закрыто из уведомления")
+        release()
+    }
+
+    private fun handlerResumeSoon() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!wantPlay) { return@postDelayed }
+            videoPaused { paused -> if (paused) { resumeIfPaused() } }
+        }, 700)
+    }
+
+    /** «Пульс» со страницы: состояние ролика для медиа-уведомления (раз в секунду). */
+    private fun onMediaPulse(json: String) {
+        val pulse = PlaybackCodec.parsePulse(json) ?: return
+        if (pulse.title.isNotBlank()) {
+            title = pulse.title
+        }
+        if (lastPlaying == null) {
+            DiagLog.add("движок-плеер: состояние ролика на связи")
+        } else if (lastPlaying != pulse.playing) {
+            DiagLog.add(if (pulse.playing) "движок-плеер: игра" else "движок-плеер: пауза")
+        }
+        lastPlaying = pulse.playing
+        PlaybackService.update(
+            playing = pulse.playing,
+            positionMs = pulse.positionMs,
+            durationMs = pulse.durationMs,
+            title = title,
+            channel = pulse.channel,
+            videoId = pulse.videoId.ifBlank { PlaybackCodec.sanitizeVideoId(videoId) },
+            loop = pulse.loop,
+        )
+        // Страховка: ролик встал на паузу не по нашей воле — вернём игру (но не после досмотра).
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!pulse.playing && wantPlay && !PlaybackCodec.nearEnd(pulse) && now - lastResumeTryAt > 2500) {
+            lastResumeTryAt = now
+            resumeIfPaused()
+        }
     }
 
     private fun post(text: String) {
@@ -291,7 +458,7 @@ object PlayerSession {
         }
     }
 
-    /** Мост странице: жесты и диагностика без переходов по адресам. */
+    /** Мост странице: жесты, состояние ролика и диагностика без переходов по адресам. */
     private class Bridge {
         @android.webkit.JavascriptInterface
         fun minimize() {
@@ -303,10 +470,45 @@ object PlayerSession {
         fun layout(report: String) {
             DiagLog.add("движок-плеер: вёрстка — " + report.take(460))
         }
+
+        /** Сообщение со страницы (страж паузы, редкие события) — с защитой от повторов. */
+        @android.webkit.JavascriptInterface
+        fun note(text: String) {
+            Handler(Looper.getMainLooper()).post {
+                val trimmed = text.take(120)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (trimmed != lastNote || now - lastNoteAt > 6000) {
+                    lastNote = trimmed
+                    lastNoteAt = now
+                    DiagLog.add("движок-плеер: $trimmed")
+                }
+            }
+        }
+
+        /** «Пульс» состояния: играет ли ролик, позиция, длительность, название, канал. */
+        @android.webkit.JavascriptInterface
+        fun media(json: String) {
+            val trimmed = json.take(2000)
+            Handler(Looper.getMainLooper()).post { onMediaPulse(trimmed) }
+        }
+
+        /** Пользователь сам поставил паузу (жест на странице) — уважаем и не возобновляем. */
+        @android.webkit.JavascriptInterface
+        fun pausedByUser() {
+            Handler(Looper.getMainLooper()).post {
+                wantPlay = false
+                DiagLog.add("движок-плеер: пауза по кнопке сервиса — уважаю")
+            }
+        }
     }
 
     private fun injectTuning(view: WebView?) {
         view ?: return
+        val safeId = PlaybackCodec.sanitizeVideoId(videoId)
+        if (safeId.isNotBlank()) {
+            view.evaluateJavascript("try{ window.__oberegVideoId = '$safeId'; }catch(e){} 'ok'") { _ -> }
+        }
+        pushWantToJs()
         val script = TUNING.replace("__RATE__", speed.toString())
         view.evaluateJavascript(script) { raw ->
             val answer = PlayerApi.decodeJsString(raw)
@@ -332,6 +534,10 @@ object PlayerSession {
         override fun onWindowVisibilityChanged(visibility: Int) {
             super.onWindowVisibilityChanged(View.VISIBLE)
         }
+
+        override fun onVisibilityAggregated(isVisible: Boolean) {
+            super.onVisibilityAggregated(true)
+        }
     }
 
     /** Играет ли ролик: сначала спрашиваем сам плеер сервиса, при сомнении — элемент видео. */
@@ -356,6 +562,7 @@ object PlayerSession {
     private val JS_RESUME = """
         (function(){
           try {
+            window.__oberegWantPlay = true;
             var p = document.getElementById('movie_player');
             var played = false;
             try { if (p && typeof p.playVideo === 'function') { p.playVideo(); played = true; } } catch (e) { }
@@ -383,14 +590,106 @@ object PlayerSession {
             } catch (e) { }
             if (playing === null) { playing = v ? !v.paused : false; }
             if (playing) {
+              window.__oberegWantPlay = false;
+              window.__oberegAllowPause = true;
               try { if (p && typeof p.pauseVideo === 'function') { p.pauseVideo(); } } catch (e) { }
-              try { if (v) { v.pause(); } } catch (e) { }
+              try { if (v && !v.paused) { v.pause(); } } catch (e) { }
+              setTimeout(function(){ window.__oberegAllowPause = false; }, 900);
               return '2';
             }
+            window.__oberegWantPlay = true;
             try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
-            try { if (v) { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } } catch (e) { }
+            try { if (v && v.paused) { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } } catch (e) { }
             return '1';
           } catch (e) { return '0'; }
+        })()
+    """.trimIndent()
+
+    /** Явная пауза по нашей кнопке: уважаем своё решение, чужим паузам страж не мешает. */
+    private val JS_PAUSE = """
+        (function(){
+          try {
+            window.__oberegWantPlay = false;
+            window.__oberegAllowPause = true;
+            var p = document.getElementById('movie_player');
+            var v = document.querySelector('video');
+            try { if (p && typeof p.pauseVideo === 'function') { p.pauseVideo(); } } catch (e) { }
+            try { if (v && !v.paused) { v.pause(); } } catch (e) { }
+            setTimeout(function(){ window.__oberegAllowPause = false; }, 900);
+            return '2';
+          } catch (e) { return '0'; }
+        })()
+    """.trimIndent()
+
+    /** Наше «хочу играть» на странице — переносим состояние между экранами. */
+    private val JS_CAPTURE = """
+        (function(){
+          try {
+            if (typeof window.__oberegWantPlay === 'boolean') { return window.__oberegWantPlay ? '1' : '0'; }
+            var v = document.querySelector('video');
+            return (v && v.paused) ? '0' : '1';
+          } catch (e) { return '1'; }
+        })()
+    """.trimIndent()
+
+    /** Снимок состояния ролика — отсюда медиа-уведомление берёт данные. */
+    private val JS_SNAPSHOT = """
+        (function(){ try { return (typeof window.__oberegSnapshot === 'function') ? window.__oberegSnapshot() : '{}'; } catch (e) { return '{}'; } })()
+    """.trimIndent()
+
+    /** Следующий ролик. */
+    private val JS_NEXT = """
+        (function(){
+          try {
+            var p = document.getElementById('movie_player');
+            if (p && typeof p.nextVideo === 'function') { p.nextVideo(); return 'api'; }
+            var btn = document.querySelector('.ytp-next-button, button[aria-label*="Следующее"], button[aria-label*="Next"]');
+            if (btn) { btn.click(); return 'кнопка'; }
+            return 'нет';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
+
+    /** Предыдущий ролик (запасной путь — в начало). */
+    private val JS_PREV = """
+        (function(){
+          try {
+            var p = document.getElementById('movie_player');
+            if (p && typeof p.previousVideo === 'function') { p.previousVideo(); return 'api'; }
+            if (p && typeof p.seekTo === 'function') { p.seekTo(0, true); return 'в начало'; }
+            var v = document.querySelector('video');
+            if (v) { v.currentTime = 0; return 'элемент'; }
+            return 'нет';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
+
+    /** Повтор текущего ролика: включить/выключить. */
+    private val JS_REPEAT = """
+        (function(){
+          try {
+            var v = document.querySelector('video');
+            var p = document.getElementById('movie_player');
+            var next = !(v && v.loop);
+            try { if (v) { v.loop = next; } } catch (e) { }
+            try { if (p && typeof p.setLoopVideo === 'function') { p.setLoopVideo(next); } } catch (e) { }
+            return next ? 'on' : 'off';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
+
+    /** Перемотка: __S__ — секунды. */
+    private val JS_SEEK = """
+        (function(){
+          try {
+            var s = __S__;
+            if (typeof s !== 'number' || !isFinite(s) || s < 0) { return 'сбой'; }
+            var p = document.getElementById('movie_player');
+            if (p && typeof p.seekTo === 'function') { p.seekTo(s, true); return 'api'; }
+            var v = document.querySelector('video');
+            if (v) { v.currentTime = s; return 'элемент'; }
+            return 'нет';
+          } catch (e) { return 'сбой'; }
         })()
     """.trimIndent()
 
@@ -497,8 +796,8 @@ object PlayerSession {
     """.trimIndent()
 
     /** Ранний стиль: ставится ещё до отрисовки страницы — чужой шапки и логотипа не видно даже мельком.
-     *  Плюс: страница всегда считает себя видимой — иначе сервис сам ставит ролик на паузу
-     *  при сворачивании, в окне и в фоне. */
+     *  Плюс: страница всегда считает себя видимой и «хочет играть», пока мы не сказали обратное, —
+     *  иначе сервис сам ставит ролик на паузу при сворачивании, в окне и в фоне. */
     private val TUNING_EARLY = """
         (function(){
           try {
@@ -524,6 +823,111 @@ object PlayerSession {
             try { Object.defineProperty(Document.prototype, 'visibilityState', { get: function () { return 'visible'; }, configurable: true }); } catch (e) { }
             try { Object.defineProperty(Document.prototype, 'webkitHidden', { get: function () { return false; }, configurable: true }); } catch (e) { }
             try { Object.defineProperty(Document.prototype, 'webkitVisibilityState', { get: function () { return 'visible'; }, configurable: true }); } catch (e) { }
+          } catch (e) { }
+          try {
+            // «Страж паузы»: пока мы хотим играть, чужие просьбы о паузе (без свежего жеста
+            // пользователя и без нашего разрешения) не проходят. Именно они ставили ролик
+            // на паузу при сворачивании в мини-плеер и в окне.
+            if (!window.__oberegPauseGuard) {
+              window.__oberegPauseGuard = true;
+              if (typeof window.__oberegWantPlay !== 'boolean') { window.__oberegWantPlay = true; }
+              window.__oberegAllowPause = false;
+              window.__oberegPauseBlocks = 0;
+              window.__oberegLastGesture = 0;
+              ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'].forEach(function (name) {
+                document.addEventListener(name, function () { window.__oberegLastGesture = Date.now(); }, true);
+              });
+              var origPause = HTMLMediaElement.prototype.pause;
+              HTMLMediaElement.prototype.pause = function() {
+                try {
+                  var want = (window.__oberegWantPlay !== false);
+                  var allow = (window.__oberegAllowPause === true);
+                  var act = false;
+                  try { act = !!(navigator.userActivation && navigator.userActivation.isActive); } catch (e) { }
+                  var fresh = (Date.now() - (window.__oberegLastGesture || 0)) < 600;
+                  if (want && !allow && !act && !fresh) {
+                    window.__oberegPauseBlocks = (window.__oberegPauseBlocks || 0) + 1;
+                    try {
+                      var h = window.__oberegHost;
+                      if (h && h.note && (window.__oberegPauseBlocks <= 3 || window.__oberegPauseBlocks % 20 === 0)) {
+                        h.note('просьба о паузе отклонена (всего ' + window.__oberegPauseBlocks + ')');
+                      }
+                    } catch (e) { }
+                    return;
+                  }
+                } catch (e) { }
+                return origPause.apply(this, arguments);
+              };
+              document.addEventListener('pause', function (ev) {
+                try {
+                  var t = ev.target;
+                  if (!t || t.tagName !== 'VIDEO') { return; }
+                  var act = false;
+                  try { act = !!(navigator.userActivation && navigator.userActivation.isActive); } catch (e) { }
+                  if (act) {
+                    window.__oberegWantPlay = false;
+                    try { var h = window.__oberegHost; if (h && h.pausedByUser) { h.pausedByUser(); } } catch (e) { }
+                    return;
+                  }
+                  if (window.__oberegAllowPause !== true) {
+                    try { var h2 = window.__oberegHost; if (h2 && h2.note) { h2.note('пауза не по кнопке (верну игру)'); } } catch (e) { }
+                  }
+                } catch (e) { }
+              }, true);
+            }
+          } catch (e) { }
+          try {
+            if (!window.__oberegSnapshot) {
+              window.__oberegSnapshot = function() {
+                try {
+                  var p = document.getElementById('movie_player');
+                  var v = document.querySelector('video');
+                  var playing = false;
+                  var t = 0;
+                  var d = 0;
+                  try { if (p && typeof p.getPlayerState === 'function') { var s = p.getPlayerState(); playing = (s === 1 || s === 3); } } catch (e) { }
+                  try { if (p && typeof p.getCurrentTime === 'function') { t = p.getCurrentTime() || 0; } } catch (e) { }
+                  try { if (p && typeof p.getDuration === 'function') { d = p.getDuration() || 0; } } catch (e) { }
+                  if (!t && v) { try { t = v.currentTime || 0; } catch (e) { } }
+                  if (!d && v) { try { d = v.duration || 0; } catch (e) { } }
+                  if (!playing && v) { try { playing = !v.paused; } catch (e) { } }
+                  var title = '';
+                  var author = '';
+                  var id = '';
+                  try {
+                    if (p && typeof p.getVideoData === 'function') {
+                      var vd = p.getVideoData() || {};
+                      title = vd.title || '';
+                      author = vd.author || '';
+                      id = vd.video_id || '';
+                    }
+                  } catch (e) { }
+                  if (!title) { try { title = (document.title || '').replace(/ - YouTube$/, ''); } catch (e) { } }
+                  if (!title) { try { var og = document.querySelector('meta[property="og:title"]'); if (og) { title = og.content || ''; } } catch (e) { } }
+                  if (!author) {
+                    try {
+                      var sels = ['ytm-slim-owner-renderer a', 'ytm-slim-owner-renderer', 'ytm-video-owner-renderer a', '#owner a', '#owner-name a', '.slim-owner-name'];
+                      for (var i = 0; i < sels.length; i++) {
+                        var node = document.querySelector(sels[i]);
+                        if (node && node.textContent && node.textContent.trim()) { author = node.textContent.trim(); break; }
+                      }
+                    } catch (e) { }
+                  }
+                  if (!id && window.__oberegVideoId) { id = window.__oberegVideoId; }
+                  var loop = false;
+                  try { loop = !!(v && v.loop); } catch (e) { }
+                  return JSON.stringify({
+                    playing: !!playing,
+                    t: Math.max(0, Math.round((t || 0) * 1000)),
+                    d: Math.max(0, Math.round((d || 0) * 1000)),
+                    title: String(title).slice(0, 160),
+                    author: String(author).slice(0, 120),
+                    id: String(id).slice(0, 32),
+                    loop: !!loop
+                  });
+                } catch (e) { return '{}'; }
+              };
+            }
           } catch (e) { }
         })()
     """.trimIndent()
@@ -760,6 +1164,14 @@ object PlayerSession {
                 }
               } catch (e) { }
             }
+            function pulse() {
+              try {
+                var h = host();
+                if (h && h.media && typeof window.__oberegSnapshot === 'function') {
+                  h.media(window.__oberegSnapshot());
+                }
+              } catch (e) { }
+            }
             ensureStyle();
             hideChrome();
             hideChips();
@@ -769,6 +1181,8 @@ object PlayerSession {
             setTimeout(function(){ hideChipsFull(); }, 2600);
             setTimeout(function(){ reportLayout('в4с'); }, 4000);
             setTimeout(function(){ reportLayout('в10с'); }, 10000);
+            setTimeout(pulse, 900);
+            setInterval(pulse, 1000);
             setInterval(function(){
               try {
                 ensureStyle();
@@ -776,7 +1190,7 @@ object PlayerSession {
                 hideChips();
                 guardPip();
                 attachSwipe();
-                pinPlayer();
+                if (window.__oberegPipMode !== true) { pinPlayer(); }
                 var player = document.getElementById('movie_player');
                 var video = document.querySelector('video');
                 if (!video) { return; }
@@ -797,7 +1211,7 @@ object PlayerSession {
                   }
                 }
               } catch (e) { }
-            }, 400);
+            }, 500);
             return 'готово';
           } catch (e) { return 'сбой'; }
         })()
