@@ -60,6 +60,9 @@ object PlayerSession {
     /** Оболочка обновляет мини-плеер, когда ролик закрыт из уведомления или уведомление убрано. */
     var onReleased: (() -> Unit)? = null
 
+    /** Защита от дребезга жеста экрана (одна свёртка на полторы секунды). */
+    private var lastViewMinimizeAt = 0L
+
     /** Ролик загружен и им можно пользоваться. */
     val active: Boolean get() = web != null && videoId.isNotEmpty()
 
@@ -188,6 +191,7 @@ object PlayerSession {
         val view = web ?: return
         runCatching { view.onResume() }
         runCatching { view.resumeTimers() }
+        runCatching { view.invalidate() }
     }
 
     /** Открыть ролик: если это тот же ролик — просто продолжаем, если новый — грузим. */
@@ -244,6 +248,7 @@ object PlayerSession {
      */
     private fun wakeAfterAttach() {
         pushWantToJs()
+        runCatching { web?.invalidate() }
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 150)
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 1200)
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 2600)
@@ -261,6 +266,20 @@ object PlayerSession {
     fun detach() {
         keepAlive()
         (web?.parent as? ViewGroup)?.removeView(web)
+    }
+
+    /**
+     * Свёртка жестом экрана: свайп ловим на уровне самого WebView — не зависим от того,
+     * как страница обрабатывает касания. Вызывается из SessionWebView.
+     */
+    fun requestMinimizeFromView() {
+        val h = host ?: return
+        if (pipActive) { return }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastViewMinimizeAt < 1500) { return }
+        lastViewMinimizeAt = now
+        DiagLog.add("движок-плеер: свайп (жест экрана) — сворачиваю")
+        h.onMinimizeRequested()
     }
 
     fun togglePlayPause() {
@@ -459,6 +478,7 @@ object PlayerSession {
 
     /** Мост странице: жесты, состояние ролика и диагностика без переходов по адресам. */
     private class Bridge {
+
         @android.webkit.JavascriptInterface
         fun minimize() {
             DiagLog.add("движок-плеер: свайп вниз — сворачиваю в мини-плеер")
@@ -528,14 +548,45 @@ object PlayerSession {
         else -> "$rate×"
     }
 
-    /** WebView, который всегда считает своё окно видимым: иначе Chromium сам ставит ролик на паузу. */
+    /** WebView, который всегда считает своё окно видимым и сам ловит свайп-сворачивание. */
     private class SessionWebView(context: Context) : WebView(context) {
+
+        private var swipeStartY = -1f
+        private var swipeStartX = 0f
+        private var swipeStartAt = 0L
+
         override fun onWindowVisibilityChanged(visibility: Int) {
             super.onWindowVisibilityChanged(View.VISIBLE)
         }
 
         override fun onVisibilityAggregated(isVisible: Boolean) {
             super.onVisibilityAggregated(true)
+        }
+
+        override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+            runCatching {
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        swipeStartY = event.y
+                        swipeStartX = event.x
+                        swipeStartAt = android.os.SystemClock.elapsedRealtime()
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        if (swipeStartY >= 0f) {
+                            val dy = event.y - swipeStartY
+                            val dx = Math.abs(event.x - swipeStartX)
+                            val dt = android.os.SystemClock.elapsedRealtime() - swipeStartAt
+                            val fromTop = swipeStartY < height * 0.45f
+                            val threshold = 80f * resources.displayMetrics.density
+                            if (dy > threshold && dx < dy && dt < 1400 && fromTop) {
+                                requestMinimizeFromView()
+                            }
+                        }
+                        swipeStartY = -1f
+                    }
+                }
+            }
+            return super.onTouchEvent(event)
         }
     }
 
@@ -947,21 +998,14 @@ object PlayerSession {
             document.addEventListener('blur', function (e) { try { e.stopImmediatePropagation(); } catch (err) { } }, true);
           } catch (e) { }
           try {
-            // Микроперемотка: будит видеослой, если после переезда окна он «отвалился» (звук есть, картинки нет).
+            // Лёгкое «пробуждение»: читаем геометрию и размеры видео — без перемоток и стилей
+            // (микроперемотку делает видео-спасатель только когда кадры реально встали).
             if (!window.__oberegNudge) {
               window.__oberegNudge = function (reason) {
                 try {
                   var v = document.querySelector('video');
                   if (!v) { return 'нет видео'; }
-                  try {
-                    var t = v.currentTime || 0;
-                    if (typeof v.fastSeek === 'function') { v.fastSeek(t + 0.01); } else { v.currentTime = t + 0.01; }
-                  } catch (e) { }
-                  try {
-                    var was = v.style.transform;
-                    v.style.transform = (was || '') + ' translateZ(0.001px)';
-                    setTimeout(function(){ try { v.style.transform = was || ''; } catch (e) { } }, 140);
-                  } catch (e) { }
+                  try { void v.getBoundingClientRect(); void v.videoWidth; } catch (e) { }
                   return 'ок';
                 } catch (e) { return 'сбой'; }
               };
@@ -1319,6 +1363,56 @@ object PlayerSession {
                 }
               } catch (e) { }
             }
+            // Видео-спасатель: если звук идёт, а кадры стоят — будим поток и пишем это в журнал.
+            var videoFramesLast = -1;
+            var videoStallSince = 0;
+            var videoRescueCount = 0;
+            var videoRescueAt = 0;
+            var videoRescueCooldownUntil = 0;
+            function videoWatch() {
+              try {
+                var v = document.querySelector('video');
+                var h = host();
+                if (!v || v.paused || v.currentTime < 0.5 || window.__oberegPipMode === true) { videoFramesLast = -1; videoStallSince = 0; return; }
+                if (Date.now() < videoRescueCooldownUntil) { return; }
+                var frames = -1;
+                try {
+                  if (typeof v.getVideoPlaybackQuality === 'function') { frames = v.getVideoPlaybackQuality().totalVideoFrames; }
+                  else if (typeof v.webkitDecodedFrameCount === 'number') { frames = v.webkitDecodedFrameCount; }
+                } catch (e) { }
+                if (frames < 0) { return; }
+                if (frames !== videoFramesLast) {
+                  videoFramesLast = frames;
+                  videoStallSince = 0;
+                  if (videoRescueCount > 0 && Date.now() - videoRescueAt > 10000) { videoRescueCount = 0; }
+                  return;
+                }
+                if (!videoStallSince) { videoStallSince = Date.now(); return; }
+                var stalledMs = Date.now() - videoStallSince;
+                if (stalledMs < 6000) { return; }
+                if (Date.now() - videoRescueAt < 8000) { return; }
+                videoRescueAt = Date.now();
+                videoRescueCount++;
+                var p = document.getElementById('movie_player');
+                if (videoRescueCount === 1) {
+                  try { if (p && typeof p.seekTo === 'function') { p.seekTo((v.currentTime || 0) + 0.03, true); } else { v.currentTime = (v.currentTime || 0) + 0.03; } } catch (e) { }
+                  if (h && h.note) { h.note('видеопоток встал (' + Math.round(stalledMs / 1000) + ' с без кадров) — микроперемотка'); }
+                  return;
+                }
+                if (videoRescueCount === 2) {
+                  try { if (p && typeof p.setPlaybackQualityRange === 'function') { p.setPlaybackQualityRange('small'); } } catch (e) { }
+                  try { v.currentTime = (v.currentTime || 0) + 0.05; } catch (e) { }
+                  if (h && h.note) { h.note('видеопоток всё ещё стоит — ставлю качество ниже'); }
+                  return;
+                }
+                if (videoRescueCount === 3) {
+                  if (h && h.note) { h.note('видеопоток не ожил — перезагружаю страницу'); }
+                  videoRescueCooldownUntil = Date.now() + 90000;
+                  try { location.reload(); } catch (e) { }
+                  return;
+                }
+              } catch (e) { }
+            }
             ensureStyle();
             hideChrome();
             hideChips();
@@ -1351,6 +1445,7 @@ object PlayerSession {
                     }
                   } catch (e) { }
                 }
+                videoWatch();
                 var player = document.getElementById('movie_player');
                 var video = document.querySelector('video');
                 if (!video) { return; }

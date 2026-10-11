@@ -161,6 +161,32 @@ class FeedActivity : AppCompatActivity() {
         if (PlayerSession.active && !PlayerSession.pipActive) {
             miniBar.visibility = android.view.View.VISIBLE
             PlayerSession.attachTo(miniHolder)
+            // Поверх мини-видео — «крышка»: тап по нему разворачивает плеер,
+            // а не уходит нечаянно в страницу (оттуда раньше прилетала пауза).
+            if (miniHolder.findViewWithTag<android.view.View>("mini-cover") == null) {
+                val cover = android.view.View(this)
+                cover.tag = "mini-cover"
+                cover.isClickable = true
+                cover.contentDescription = "Развернуть плеер"
+                cover.setOnClickListener {
+                    if (PlayerSession.active) {
+                        startActivity(
+                            EnginePlayerActivity.createIntent(
+                                this,
+                                PlayerSession.videoId,
+                                PlayerSession.title,
+                            ),
+                        )
+                    }
+                }
+                miniHolder.addView(
+                    cover,
+                    android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            }
             miniTitle.text = PlayerSession.title.ifBlank { PlayerSession.videoId }
             miniSub.text = "играет в мини-плеере"
             miniPlay.postDelayed(playStateCheck, 900)
