@@ -223,7 +223,8 @@ class PlaybackService : Service() {
         val openPi = PendingIntent.getActivity(
             this,
             REQ_OPEN,
-            EnginePlayerActivity.createIntent(this, PlayerSession.videoId, PlayerSession.title),
+            EnginePlayerActivity.createIntent(this, PlayerSession.videoId, PlayerSession.title)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val togglePi = servicePi(REQ_TOGGLE, ACTION_TOGGLE)

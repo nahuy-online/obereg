@@ -22,6 +22,7 @@
 
         <activity
             android:name=".FeedActivity"
+            android:launchMode="singleTop"
             android:exported="false" />
         <activity
             android:name=".ProfileActivity"
@@ -47,6 +48,7 @@
         <activity
             android:name=".EnginePlayerActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|layoutDirection"
             android:supportsPictureInPicture="true"
             android:label="@string/player_title" />

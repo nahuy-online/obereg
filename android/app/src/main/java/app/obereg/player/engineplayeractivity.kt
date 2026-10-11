@@ -32,6 +32,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
     private lateinit var topBar: View
     private lateinit var speedChip: TextView
     private var videoId = ""
+    private var lastCollapseAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -102,8 +103,31 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         collapseToMini()
     }
 
+    /** Повторный запуск (шторка, мини-бар) на уже открытый экран: не плодим копии. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val newId = intent.getStringExtra("videoId") ?: ""
+        val newTitle = intent.getStringExtra("title") ?: ""
+        if (newId.isNotBlank() && newId != videoId) {
+            videoId = newId
+            PlayerSession.open(this, newId, newTitle)
+        }
+        PlayerSession.host = this
+        if (!isInPictureInPictureMode) {
+            PlayerSession.attachTo(holder)
+            PlayerSession.applyPipLayout(false)
+        }
+    }
+
     /** Свернуть в мини-плеер: ролик переезжает вниз оболочки и продолжает играть. */
     private fun collapseToMini() {
+        // Защита от двойных срабатываний (жест и кнопка в один миг): одна свёртка на полторы секунды.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastCollapseAt < 1500) {
+            return
+        }
+        lastCollapseAt = now
         DiagLog.add("движок-плеер: сворачиваю в мини-плеер")
         PlayerSession.captureWantPlay()
         PlayerSession.scheduleResumeAttempts()

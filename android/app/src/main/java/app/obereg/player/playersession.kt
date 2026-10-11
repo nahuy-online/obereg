@@ -244,10 +244,9 @@ object PlayerSession {
      */
     private fun wakeAfterAttach() {
         pushWantToJs()
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (!wantPlay) { return@postDelayed }
-            videoPaused { paused -> if (paused) { resumeIfPaused() } }
-        }, 150)
+        Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 150)
+        Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 1200)
+        Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 2600)
     }
 
     /** Сказать странице, что мы хотим играть: страж паузы пропускает только своё. */
@@ -693,6 +692,24 @@ object PlayerSession {
         })()
     """.trimIndent()
 
+    /** Разбудить страницу после переезда: продолжить, если нужно, и починить картинку/вёрстку. */
+    private val JS_WAKE = """
+        (function(){
+          try {
+            var want = (window.__oberegWantPlay !== false);
+            var v = document.querySelector('video');
+            if (want && v && v.paused) {
+              var p = document.getElementById('movie_player');
+              try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
+              try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
+            }
+            try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
+            try { if (typeof window.__oberegReflowRescue === 'function') { window.__oberegReflowRescue('пробуждение'); } } catch (e) { }
+            return 'ok';
+          } catch (e) { return 'сбой'; }
+        })()
+    """.trimIndent()
+
     /** Вставляет/убирает стиль «только ролик на весь кадр» для системного окна. */
     private val APPLY_PIP_JS = """
         (function(){
@@ -789,6 +806,10 @@ object PlayerSession {
               if (st && st.parentNode) { st.parentNode.removeChild(st); }
               enforcePipVideo(false);
               restorePip();
+              setTimeout(function(){
+                try { if (window.__oberegNudge) { window.__oberegNudge('выход из окна'); } } catch (e) { }
+                try { if (window.__oberegReflowRescue) { window.__oberegReflowRescue('выход из окна'); } } catch (e) { }
+              }, 300);
             }
           } catch (e) { }
           return 'ok';
@@ -825,35 +846,74 @@ object PlayerSession {
             try { Object.defineProperty(Document.prototype, 'webkitVisibilityState', { get: function () { return 'visible'; }, configurable: true }); } catch (e) { }
           } catch (e) { }
           try {
-            // «Страж паузы»: пока мы хотим играть, чужие просьбы о паузе (без свежего жеста
-            // пользователя и без нашего разрешения) не проходят. Именно они ставили ролик
-            // на паузу при сворачивании в мини-плеер и в окне.
+            // «Страж паузы» (v2): пока мы хотим играть, чужие просьбы о паузе не проходят.
+            // «Паузой пользователя» считается только нажатие настоящей кнопки страницы
+            // (или наше разрешение). Свайп-жесты (сворачивание) — не пауза: окно жеста
+            // глушит всё, что страница пытается делать по пути.
             if (!window.__oberegPauseGuard) {
               window.__oberegPauseGuard = true;
               if (typeof window.__oberegWantPlay !== 'boolean') { window.__oberegWantPlay = true; }
               window.__oberegAllowPause = false;
               window.__oberegPauseBlocks = 0;
               window.__oberegLastGesture = 0;
+              window.__oberegLastTapOnButtonAt = 0;
+              window.__oberegGestureGuardUntil = 0;
+              window.__oberegTouchStartY = null;
+              window.__oberegTouchStartX = null;
               ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'].forEach(function (name) {
                 document.addEventListener(name, function () { window.__oberegLastGesture = Date.now(); }, true);
               });
+              // Паузой пользователя считаем только нажатие настоящей кнопки страницы.
+              ['pointerdown', 'click'].forEach(function (name) {
+                document.addEventListener(name, function (e) {
+                  try {
+                    var t = e.target;
+                    if (t && t.closest && t.closest('button, [role="button"], .ytp-play-button')) {
+                      window.__oberegLastTapOnButtonAt = Date.now();
+                    }
+                  } catch (err) { }
+                }, true);
+              });
+              // Вертикальный свайп больше 60px — «окно жеста»: странице нельзя ставить
+              // ролик на паузу, пока жест идёт (это не намерение паузы).
+              document.addEventListener('touchstart', function (e) {
+                try { var t = e.touches[0]; if (t) { window.__oberegTouchStartY = t.clientY; window.__oberegTouchStartX = t.clientX; } } catch (err) { }
+              }, { passive: true, capture: true });
+              document.addEventListener('touchmove', function (e) {
+                try {
+                  var t = e.touches[0];
+                  if (!t || window.__oberegTouchStartY === null) { return; }
+                  var dy = t.clientY - window.__oberegTouchStartY;
+                  var dx = Math.abs(t.clientX - window.__oberegTouchStartX);
+                  if (dy > 60 && dx < dy) {
+                    window.__oberegGestureGuardUntil = Date.now() + 1800;
+                  }
+                } catch (err) { }
+              }, { passive: true, capture: true });
               var origPause = HTMLMediaElement.prototype.pause;
               HTMLMediaElement.prototype.pause = function() {
                 try {
                   var want = (window.__oberegWantPlay !== false);
                   var allow = (window.__oberegAllowPause === true);
-                  var act = false;
-                  try { act = !!(navigator.userActivation && navigator.userActivation.isActive); } catch (e) { }
-                  var fresh = (Date.now() - (window.__oberegLastGesture || 0)) < 600;
-                  if (want && !allow && !act && !fresh) {
-                    window.__oberegPauseBlocks = (window.__oberegPauseBlocks || 0) + 1;
-                    try {
-                      var h = window.__oberegHost;
-                      if (h && h.note && (window.__oberegPauseBlocks <= 3 || window.__oberegPauseBlocks % 20 === 0)) {
-                        h.note('просьба о паузе отклонена (всего ' + window.__oberegPauseBlocks + ')');
-                      }
-                    } catch (e) { }
-                    return;
+                  if (want && !allow) {
+                    var now = Date.now();
+                    var hasUA = false;
+                    var act = false;
+                    try { hasUA = !!navigator.userActivation; act = hasUA && !!navigator.userActivation.isActive; } catch (e) { }
+                    var fresh = (now - (window.__oberegLastGesture || 0)) < 600;
+                    var onButton = (now - (window.__oberegLastTapOnButtonAt || 0)) < 900;
+                    var gesture = now < (window.__oberegGestureGuardUntil || 0);
+                    var userIntent = (act || (!hasUA && fresh)) && onButton && !gesture;
+                    if (!userIntent) {
+                      window.__oberegPauseBlocks = (window.__oberegPauseBlocks || 0) + 1;
+                      try {
+                        var h = window.__oberegHost;
+                        if (h && h.note && (window.__oberegPauseBlocks <= 3 || window.__oberegPauseBlocks % 20 === 0)) {
+                          h.note('просьба о паузе отклонена (всего ' + window.__oberegPauseBlocks + ')');
+                        }
+                      } catch (e) { }
+                      return;
+                    }
                   }
                 } catch (e) { }
                 return origPause.apply(this, arguments);
@@ -862,18 +922,105 @@ object PlayerSession {
                 try {
                   var t = ev.target;
                   if (!t || t.tagName !== 'VIDEO') { return; }
+                  if (window.__oberegAllowPause === true) { return; }
+                  var now = Date.now();
                   var act = false;
                   try { act = !!(navigator.userActivation && navigator.userActivation.isActive); } catch (e) { }
-                  if (act) {
+                  var onButton = (now - (window.__oberegLastTapOnButtonAt || 0)) < 900;
+                  var gesture = now < (window.__oberegGestureGuardUntil || 0);
+                  if (act && onButton && !gesture) {
                     window.__oberegWantPlay = false;
                     try { var h = window.__oberegHost; if (h && h.pausedByUser) { h.pausedByUser(); } } catch (e) { }
                     return;
                   }
-                  if (window.__oberegAllowPause !== true) {
+                  if (window.__oberegWantPlay !== false) {
                     try { var h2 = window.__oberegHost; if (h2 && h2.note) { h2.note('пауза не по кнопке (верну игру)'); } } catch (e) { }
                   }
                 } catch (e) { }
               }, true);
+            }
+          } catch (e) { }
+          try {
+            // Фокус: считаем, что окно всегда в фокусе (сервис иногда ставит паузу по потере фокуса).
+            try { Object.defineProperty(Document.prototype, 'hasFocus', { get: function () { return true; }, configurable: true }); } catch (e) { }
+            window.addEventListener('blur', function (e) { try { e.stopImmediatePropagation(); } catch (err) { } }, true);
+            document.addEventListener('blur', function (e) { try { e.stopImmediatePropagation(); } catch (err) { } }, true);
+          } catch (e) { }
+          try {
+            // Микроперемотка: будит видеослой, если после переезда окна он «отвалился» (звук есть, картинки нет).
+            if (!window.__oberegNudge) {
+              window.__oberegNudge = function (reason) {
+                try {
+                  var v = document.querySelector('video');
+                  if (!v) { return 'нет видео'; }
+                  try {
+                    var t = v.currentTime || 0;
+                    if (typeof v.fastSeek === 'function') { v.fastSeek(t + 0.01); } else { v.currentTime = t + 0.01; }
+                  } catch (e) { }
+                  try {
+                    var was = v.style.transform;
+                    v.style.transform = (was || '') + ' translateZ(0.001px)';
+                    setTimeout(function(){ try { v.style.transform = was || ''; } catch (e) { } }, 140);
+                  } catch (e) { }
+                  return 'ок';
+                } catch (e) { return 'сбой'; }
+              };
+            }
+            // Спасение вёрстки: если после переездов ролик «уехал» в середину страницы —
+            // возвращаем его на верх и подчищаем наши подтяжки.
+            if (!window.__oberegReflowRescue) {
+              window.__oberegReflowRescue = function (reason) {
+                try {
+                  var v = document.querySelector('video');
+                  if (!v) { return 'нет видео'; }
+                  if ((window.scrollY || 0) > 2) { try { window.scrollTo(0, 0); } catch (e) { } }
+                  var player = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
+                  if (player) {
+                    try {
+                      player.style.setProperty('position', 'sticky', 'important');
+                      player.style.setProperty('top', '0px', 'important');
+                    } catch (e) { }
+                  }
+                  var before = Math.round(v.getBoundingClientRect().top);
+                  var node = v;
+                  var hops = 0;
+                  while (node && node !== document.documentElement && hops < 20) {
+                    if (node !== v && node.style) {
+                      try {
+                        var cs = window.getComputedStyle(node);
+                        var pos = cs.position || '';
+                        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') {
+                          if ((parseFloat(cs.top) || 0) > 0.5) { node.style.setProperty('top', '0px', 'important'); }
+                        }
+                        if ((parseFloat(cs.paddingTop) || 0) > 0.5) { node.style.setProperty('padding-top', '0px', 'important'); }
+                        if ((parseFloat(cs.marginTop) || 0) > 0.5) { node.style.setProperty('margin-top', '0px', 'important'); }
+                      } catch (e) { }
+                    }
+                    node = node.parentElement;
+                    hops++;
+                  }
+                  if (document.body) {
+                    try {
+                      var bmt = parseFloat(getComputedStyle(document.body).marginTop) || 0;
+                      var after = v.getBoundingClientRect().top;
+                      if (after > 3) {
+                        var next = bmt - after;
+                        if (next > -600 && next < 600) { document.body.style.setProperty('margin-top', next + 'px', 'important'); }
+                      } else if (bmt < -1) {
+                        document.body.style.setProperty('margin-top', '0px', 'important');
+                      }
+                    } catch (e) { }
+                  }
+                  var fixed = Math.round(v.getBoundingClientRect().top);
+                  try {
+                    var h = window.__oberegHost;
+                    if (h && h.note && before !== fixed) {
+                      h.note('вёрстка: спасение (' + (reason || '') + ') верх видео ' + before + ' → ' + fixed);
+                    }
+                  } catch (e) { }
+                  return 'ок';
+                } catch (e) { return 'сбой'; }
+              };
             }
           } catch (e) { }
           try {
@@ -1191,6 +1338,19 @@ object PlayerSession {
                 guardPip();
                 attachSwipe();
                 if (window.__oberegPipMode !== true) { pinPlayer(); }
+                if (window.__oberegPipMode !== true && window.__oberegReflowRescue && !window.__oberegRescueBusy) {
+                  try {
+                    var rv = document.querySelector('video');
+                    if (rv) {
+                      var rtop = rv.getBoundingClientRect().top;
+                      if (rtop > 100 || rtop < -80) {
+                        window.__oberegRescueBusy = true;
+                        window.__oberegReflowRescue('цикл');
+                        setTimeout(function(){ window.__oberegRescueBusy = false; }, 1500);
+                      }
+                    }
+                  } catch (e) { }
+                }
                 var player = document.getElementById('movie_player');
                 var video = document.querySelector('video');
                 if (!video) { return; }
