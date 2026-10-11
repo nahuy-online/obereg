@@ -80,6 +80,7 @@ class FeedActivity : AppCompatActivity() {
         PlayerSession.onReleased = releaseWatcher
         miniBar.setOnClickListener {
             if (PlayerSession.active) {
+                PlayerSession.markExpand()
                 startActivity(
                     EnginePlayerActivity.createIntent(this, PlayerSession.videoId, PlayerSession.title),
                 )
@@ -170,6 +171,7 @@ class FeedActivity : AppCompatActivity() {
                 cover.contentDescription = "Развернуть плеер"
                 cover.setOnClickListener {
                     if (PlayerSession.active) {
+                        PlayerSession.markExpand()
                         startActivity(
                             EnginePlayerActivity.createIntent(
                                 this,

@@ -63,6 +63,13 @@ object PlayerSession {
     /** Защита от дребезга жеста экрана (одна свёртка на полторы секунды). */
     private var lastViewMinimizeAt = 0L
 
+    /** Когда в последний раз просили развернуть плеер: после этого мгновенные «свайпы» гасим. */
+    var lastExpandAtMs = 0L
+
+    fun markExpand() {
+        lastExpandAtMs = android.os.SystemClock.elapsedRealtime()
+    }
+
     /** Ролик загружен и им можно пользоваться. */
     val active: Boolean get() = web != null && videoId.isNotEmpty()
 
@@ -276,6 +283,7 @@ object PlayerSession {
         val h = host ?: return
         if (pipActive) { return }
         val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastExpandAtMs < 1400) { return }
         if (now - lastViewMinimizeAt < 1500) { return }
         lastViewMinimizeAt = now
         DiagLog.add("движок-плеер: свайп (жест экрана) — сворачиваю")
@@ -551,9 +559,10 @@ object PlayerSession {
     /** WebView, который всегда считает своё окно видимым и сам ловит свайп-сворачивание. */
     private class SessionWebView(context: Context) : WebView(context) {
 
-        private var swipeStartY = -1f
-        private var swipeStartX = 0f
+        private var swipeStartRawY = -1f
+        private var swipeStartRawX = 0f
         private var swipeStartAt = 0L
+        private var swipeMoves = 0
 
         override fun onWindowVisibilityChanged(visibility: Int) {
             super.onWindowVisibilityChanged(View.VISIBLE)
@@ -567,22 +576,31 @@ object PlayerSession {
             runCatching {
                 when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
-                        swipeStartY = event.y
-                        swipeStartX = event.x
+                        // Геометрия — по сырым координатам ЭКРАНА: анимации и переезды окна
+                        // не должны превращать тап в «свайп» (из-за этого была петля
+                        // «развернул → мгновенно свернулось»).
+                        swipeStartRawY = event.rawY
+                        swipeStartRawX = event.rawX
                         swipeStartAt = android.os.SystemClock.elapsedRealtime()
+                        swipeMoves = 0
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        swipeMoves++
                     }
                     android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                        if (swipeStartY >= 0f) {
-                            val dy = event.y - swipeStartY
-                            val dx = Math.abs(event.x - swipeStartX)
+                        if (swipeStartRawY >= 0f) {
+                            val dy = event.rawY - swipeStartRawY
+                            val dx = Math.abs(event.rawX - swipeStartRawX)
                             val dt = android.os.SystemClock.elapsedRealtime() - swipeStartAt
-                            val fromTop = swipeStartY < height * 0.45f
                             val threshold = 80f * resources.displayMetrics.density
-                            if (dy > threshold && dx < dy && dt < 1400 && fromTop) {
+                            val screenH = resources.displayMetrics.heightPixels
+                            val fromTop = swipeStartRawY < screenH * 0.55f
+                            val realDrag = swipeMoves >= 3 && dt >= 90 && dt <= 1400
+                            if (realDrag && dy > threshold && dx < dy && fromTop) {
                                 requestMinimizeFromView()
                             }
                         }
-                        swipeStartY = -1f
+                        swipeStartRawY = -1f
                     }
                 }
             }
@@ -602,7 +620,7 @@ object PlayerSession {
                 if (s === 2 || s === 5 || s === -1) { return '1'; }
               }
             } catch (e) { }
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             return v && v.paused ? '1' : '0';
           } catch (e) { return '1'; }
         })()
@@ -616,7 +634,7 @@ object PlayerSession {
             var p = document.getElementById('movie_player');
             var played = false;
             try { if (p && typeof p.playVideo === 'function') { p.playVideo(); played = true; } } catch (e) { }
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             if (v && v.paused) {
               try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
             }
@@ -630,7 +648,7 @@ object PlayerSession {
         (function(){
           try {
             var p = document.getElementById('movie_player');
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             var playing = null;
             try {
               if (p && typeof p.getPlayerState === 'function') {
@@ -662,7 +680,7 @@ object PlayerSession {
             window.__oberegWantPlay = false;
             window.__oberegAllowPause = true;
             var p = document.getElementById('movie_player');
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             try { if (p && typeof p.pauseVideo === 'function') { p.pauseVideo(); } } catch (e) { }
             try { if (v && !v.paused) { v.pause(); } } catch (e) { }
             setTimeout(function(){ window.__oberegAllowPause = false; }, 900);
@@ -676,7 +694,7 @@ object PlayerSession {
         (function(){
           try {
             if (typeof window.__oberegWantPlay === 'boolean') { return window.__oberegWantPlay ? '1' : '0'; }
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             return (v && v.paused) ? '0' : '1';
           } catch (e) { return '1'; }
         })()
@@ -707,7 +725,7 @@ object PlayerSession {
             var p = document.getElementById('movie_player');
             if (p && typeof p.previousVideo === 'function') { p.previousVideo(); return 'api'; }
             if (p && typeof p.seekTo === 'function') { p.seekTo(0, true); return 'в начало'; }
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             if (v) { v.currentTime = 0; return 'элемент'; }
             return 'нет';
           } catch (e) { return 'сбой'; }
@@ -718,7 +736,7 @@ object PlayerSession {
     private val JS_REPEAT = """
         (function(){
           try {
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             var p = document.getElementById('movie_player');
             var next = !(v && v.loop);
             try { if (v) { v.loop = next; } } catch (e) { }
@@ -736,7 +754,7 @@ object PlayerSession {
             if (typeof s !== 'number' || !isFinite(s) || s < 0) { return 'сбой'; }
             var p = document.getElementById('movie_player');
             if (p && typeof p.seekTo === 'function') { p.seekTo(s, true); return 'api'; }
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             if (v) { v.currentTime = s; return 'элемент'; }
             return 'нет';
           } catch (e) { return 'сбой'; }
@@ -748,12 +766,13 @@ object PlayerSession {
         (function(){
           try {
             var want = (window.__oberegWantPlay !== false);
-            var v = document.querySelector('video');
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             if (want && v && v.paused) {
               var p = document.getElementById('movie_player');
               try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
               try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
             }
+            try { if (typeof window.__oberegKick === 'function') { window.__oberegKick('пробуждение'); } } catch (e) { }
             try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
             try { if (typeof window.__oberegReflowRescue === 'function') { window.__oberegReflowRescue('пробуждение'); } } catch (e) { }
             return 'ok';
@@ -769,7 +788,7 @@ object PlayerSession {
           }
           function enforcePipVideo(force) {
             try {
-              var v = document.querySelector('video');
+              var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
               if (!v) { return; }
               if (force) {
                 v.style.setProperty('position', 'fixed', 'important');
@@ -791,7 +810,7 @@ object PlayerSession {
           }
           function isolatePip() {
             try {
-              var v = document.querySelector('video');
+              var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
               if (!v) { return; }
               if (!window.__oberegPipHidden) { window.__oberegPipHidden = []; }
               var node = v;
@@ -836,8 +855,9 @@ object PlayerSession {
               st.textContent = pipCss();
               enforcePipVideo(true);
               isolatePip();
-              var v = document.querySelector('video');
+              var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
               if (v) { try { v.setAttribute('playsinline',''); } catch (e) { } }
+              setTimeout(function(){ try { if (window.__oberegKick) { window.__oberegKick('окно'); } } catch (e) { } }, 500);
               setTimeout(function(){
                 try {
                   var h = window.__oberegHost;
@@ -858,6 +878,7 @@ object PlayerSession {
               enforcePipVideo(false);
               restorePip();
               setTimeout(function(){
+                try { if (window.__oberegKick) { window.__oberegKick('выход из окна'); } } catch (e) { }
                 try { if (window.__oberegNudge) { window.__oberegNudge('выход из окна'); } } catch (e) { }
                 try { if (window.__oberegReflowRescue) { window.__oberegReflowRescue('выход из окна'); } } catch (e) { }
               }, 300);
@@ -998,14 +1019,50 @@ object PlayerSession {
             document.addEventListener('blur', function (e) { try { e.stopImmediatePropagation(); } catch (err) { } }, true);
           } catch (e) { }
           try {
-            // Лёгкое «пробуждение»: читаем геометрию и размеры видео — без перемоток и стилей
-            // (микроперемотку делает видео-спасатель только когда кадры реально встали).
+            // Активное видео: у страницы бывает несколько <video> — берём живое.
+            if (!window.__oberegVideo) {
+              window.__oberegVideo = function () {
+                try {
+                  var p = document.getElementById('movie_player');
+                  if (p) {
+                    var v = p.querySelector('video');
+                    if (v && !v.ended) { return v; }
+                  }
+                  var list = document.querySelectorAll('video');
+                  var best = null;
+                  for (var i = 0; i < list.length; i++) {
+                    var c = list[i];
+                    if (!c || c.ended) { continue; }
+                    if (!best || (c.currentTime || 0) > (best.currentTime || 0)) { best = c; }
+                  }
+                  if (best) { return best; }
+                } catch (e) { }
+                return document.querySelector('video');
+              };
+            }
+            // Лёгкое «пробуждение»: читаем геометрию и размеры видео — без перемоток и стилей.
             if (!window.__oberegNudge) {
               window.__oberegNudge = function (reason) {
                 try {
-                  var v = document.querySelector('video');
+                  var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (!v) { return 'нет видео'; }
                   try { void v.getBoundingClientRect(); void v.videoWidth; } catch (e) { }
+                  return 'ок';
+                } catch (e) { return 'сбой'; }
+              };
+            }
+            // «Встряска слоя»: страховка от чёрного кадра после переездов (звук есть, картинки нет) —
+            // на кадр прячем видео и показываем заново: видеослой пересобирается.
+            if (!window.__oberegKick) {
+              window.__oberegKick = function (reason) {
+                try {
+                  var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+                  if (!v) { return 'нет видео'; }
+                  var d = v.style.display;
+                  v.style.display = 'none';
+                  setTimeout(function () {
+                    try { v.style.display = d || ''; } catch (e) { }
+                  }, 60);
                   return 'ок';
                 } catch (e) { return 'сбой'; }
               };
@@ -1015,7 +1072,7 @@ object PlayerSession {
             if (!window.__oberegReflowRescue) {
               window.__oberegReflowRescue = function (reason) {
                 try {
-                  var v = document.querySelector('video');
+                  var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (!v) { return 'нет видео'; }
                   if ((window.scrollY || 0) > 2) { try { window.scrollTo(0, 0); } catch (e) { } }
                   var player = document.querySelector('ytm-player') || document.querySelector('#player-container') || document.querySelector('#movie_player');
@@ -1072,7 +1129,7 @@ object PlayerSession {
               window.__oberegSnapshot = function() {
                 try {
                   var p = document.getElementById('movie_player');
-                  var v = document.querySelector('video');
+                  var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   var playing = false;
                   var t = 0;
                   var d = 0;
@@ -1171,7 +1228,7 @@ object PlayerSession {
                     (document.head || document.documentElement).appendChild(st);
                   }
                   st.textContent = 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
-                  var v = document.querySelector('video');
+                  var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (v) {
                     v.style.setProperty('position', 'fixed', 'important');
                     v.style.setProperty('top', '0', 'important');
@@ -1371,7 +1428,7 @@ object PlayerSession {
             var videoRescueCooldownUntil = 0;
             function videoWatch() {
               try {
-                var v = document.querySelector('video');
+                var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                 var h = host();
                 if (!v || v.paused || v.currentTime < 0.5 || window.__oberegPipMode === true) { videoFramesLast = -1; videoStallSince = 0; return; }
                 if (Date.now() < videoRescueCooldownUntil) { return; }

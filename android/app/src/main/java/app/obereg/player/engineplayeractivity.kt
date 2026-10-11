@@ -127,6 +127,10 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         if (now - lastCollapseAt < 1500) {
             return
         }
+        // Сразу после разворота не сворачиваем: мгновенные «жесты» в этот момент — помеха.
+        if (now - PlayerSession.lastExpandAtMs < 1250) {
+            return
+        }
         lastCollapseAt = now
         DiagLog.add("движок-плеер: сворачиваю в мини-плеер")
         PlayerSession.captureWantPlay()
