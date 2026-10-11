@@ -136,6 +136,14 @@ class FeedActivity : AppCompatActivity() {
         updateMini()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Мини-плеер продолжает играть, когда приложение уходит в фон.
+        if (PlayerSession.active) {
+            PlayerSession.keepAlive()
+        }
+    }
+
     override fun onDestroy() {
         webView.destroy()
         super.onDestroy()

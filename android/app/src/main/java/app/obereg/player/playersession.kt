@@ -80,7 +80,7 @@ object PlayerSession {
      */
     fun scheduleResumeAttempts() {
         val handler = Handler(Looper.getMainLooper())
-        listOf(400L, 1000L, 2000L, 3200L).forEach { delay ->
+        listOf(400L, 1000L, 2000L, 3200L, 5000L).forEach { delay ->
             handler.postDelayed({
                 if (!wantPlay) { return@postDelayed }
                 videoPaused { paused -> if (paused) { resumeIfPaused() } }
@@ -162,6 +162,17 @@ object PlayerSession {
         return view
     }
 
+    /**
+     * Держать страницу «живой»: классический приём — WebView не должен считать себя
+     * спящим, когда экран уходит в окно, в мини-плеер или приложение сворачивается.
+     * Так воспроизведение продолжается, а кнопки play/pause снова работают.
+     */
+    fun keepAlive() {
+        val view = web ?: return
+        runCatching { view.onResume() }
+        runCatching { view.resumeTimers() }
+    }
+
     /** Открыть ролик: если это тот же ролик — просто продолжаем, если новый — грузим. */
     fun open(context: Context, id: String, videoTitle: String) {
         val view = ensure(context)
@@ -173,14 +184,18 @@ object PlayerSession {
         if (videoId != id || view.url.isNullOrEmpty()) {
             videoId = id
             DiagLog.add("движок-плеер: открыт для $id (скорость ${speedLabel(speed)})")
-            view.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru")
+            val url = if (id.startsWith("http")) id else "https://www.youtube.com/watch?v=$id&hl=ru"
+            view.loadUrl(url)
         }
     }
 
     /** Показать ролик в указанном контейнере (экран плеера или мини-плеер оболочки). */
     fun attachTo(container: FrameLayout) {
         val view = web ?: return
-        if (view.parent === container) { return }
+        if (view.parent === container) {
+            keepAlive()
+            return
+        }
         (view.parent as? ViewGroup)?.removeView(view)
         container.removeAllViews()
         container.addView(
@@ -190,10 +205,12 @@ object PlayerSession {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ),
         )
+        keepAlive()
     }
 
     /** Убрать ролик с экрана, не выключая воспроизведение. */
     fun detach() {
+        keepAlive()
         (web?.parent as? ViewGroup)?.removeView(web)
     }
 

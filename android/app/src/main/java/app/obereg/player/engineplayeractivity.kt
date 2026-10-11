@@ -69,6 +69,13 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         super.onDestroy()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Экран уходит в окно или приложение сворачивается — не даём странице заснуть:
+        // так ролик играет в «окне» и в фоне, и кнопки play/pause снова работают.
+        PlayerSession.keepAlive()
+    }
+
     override fun onMinimizeRequested() {
         runOnUiThread { collapseToMini() }
     }
@@ -147,6 +154,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         statusView.visibility = visibility
         if (isInPictureInPictureMode) {
             PlayerSession.markPip(this)
+            PlayerSession.keepAlive()
             PlayerSession.applyPipLayout(true)
             PlayerSession.captureWantPlay()
             PlayerSession.scheduleResumeAttempts()
