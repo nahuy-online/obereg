@@ -32,7 +32,7 @@ import okhttp3.Request
  * Библиотека — локальная: недавние ролики храним у себя и открываем тем же плеером.
  * Shorts — пока заглушка, вертикальные ленты впереди.
  */
-class FeedActivity : AppCompatActivity() {
+class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipHost {
 
     private lateinit var listView: ListView
     private lateinit var statusView: TextView
@@ -50,6 +50,15 @@ class FeedActivity : AppCompatActivity() {
     private var mode: String = MODE_RECOMMENDED
     private var tab: String = TAB_MAIN
     private var pageHandled = false
+
+    /** Режим плеера прямо в оболочке: одно окно приложения, без переездов окон. */
+    private var playerMode = false
+    private var lastCollapseAt = 0L
+    private lateinit var playerPane: android.view.View
+    private lateinit var engineHolder: android.widget.FrameLayout
+    private lateinit var engineTopBar: android.view.View
+    private lateinit var engineStatus: TextView
+    private lateinit var engineSpeed: TextView
 
     /** Одна повторная попытка спросить данные у движка: страница иногда достраивается позже. */
     private var engineRetried = false
@@ -104,15 +113,17 @@ class FeedActivity : AppCompatActivity() {
             updateMini()
         }
         PlayerSession.onReleased = releaseWatcher
+        playerPane = findViewById(R.id.playerPane)
+        engineHolder = findViewById(R.id.engineHolder)
+        engineTopBar = findViewById(R.id.engineTopBar)
+        engineStatus = findViewById(R.id.engineStatus)
+        engineSpeed = findViewById(R.id.btnEngineSpeed)
+        engineSpeed.text = speedLabel(PlayerSession.speed)
+        findViewById<TextView>(R.id.btnEngineBack).setOnClickListener { collapsePlayer() }
+        engineSpeed.setOnClickListener { showSettings() }
+        findViewById<TextView>(R.id.btnEnginePip).setOnClickListener { enterPip() }
         strayHandler.postDelayed(strayWatch, 9_000)
-        miniBar.setOnClickListener {
-            if (PlayerSession.active) {
-                PlayerSession.markExpand()
-                startActivity(
-                    EnginePlayerActivity.createIntent(this, PlayerSession.videoId, PlayerSession.title),
-                )
-            }
-        }
+        miniBar.setOnClickListener { expandPlayer() }
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -157,6 +168,11 @@ class FeedActivity : AppCompatActivity() {
         }
 
         showTab(TAB_MAIN)
+
+        val wantedId = intent.getStringExtra("videoId")
+        if (!wantedId.isNullOrBlank()) {
+            playerPane.post { showPlayerPane(wantedId, intent.getStringExtra("title") ?: "") }
+        }
     }
 
     override fun onResume() {
@@ -166,11 +182,20 @@ class FeedActivity : AppCompatActivity() {
             findViewById<Button>(R.id.btnLibLogin).text =
                 if (loggedIn()) "Вход выполнен ✓" else "Войти в аккаунт"
         }
-        updateMini()
+        if (playerMode) {
+            PlayerSession.attachTo(engineHolder)
+            PlayerSession.startPlayerWatch(this)
+            PlayerSession.maybeRecoverOnReturn(this)
+        } else {
+            updateMini()
+        }
     }
 
     override fun onPause() {
         super.onPause()
+        if (playerMode) {
+            PlayerSession.stopPlayerWatch()
+        }
         PlayerSession.setAppForeground(false)
         // Мини-плеер продолжает играть, когда приложение уходит в фон.
         if (PlayerSession.active) {
@@ -178,7 +203,25 @@ class FeedActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val id = intent.getStringExtra("videoId")
+        if (!id.isNullOrBlank()) {
+            playerPane.post { showPlayerPane(id, intent.getStringExtra("title") ?: "") }
+        }
+    }
+
+    override fun onBackPressed() {
+        if (playerMode) {
+            collapsePlayer()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
     override fun onDestroy() {
+        PlayerSession.stopPlayerWatch()
         if (PlayerSession.onReleased === releaseWatcher) {
             PlayerSession.onReleased = null
         }
@@ -189,6 +232,10 @@ class FeedActivity : AppCompatActivity() {
 
     /** Мини-плеер: показываем, пока ролик жив и не ушёл в системное окно. */
     private fun updateMini() {
+        if (playerMode) {
+            miniBar.visibility = android.view.View.GONE
+            return
+        }
         if (PlayerSession.active && !PlayerSession.pipActive) {
             miniBar.visibility = android.view.View.VISIBLE
             PlayerSession.attachTo(miniHolder)
@@ -199,18 +246,7 @@ class FeedActivity : AppCompatActivity() {
                 cover.tag = "mini-cover"
                 cover.isClickable = true
                 cover.contentDescription = "Развернуть плеер"
-                cover.setOnClickListener {
-                    if (PlayerSession.active) {
-                        PlayerSession.markExpand()
-                        startActivity(
-                            EnginePlayerActivity.createIntent(
-                                this,
-                                PlayerSession.videoId,
-                                PlayerSession.title,
-                            ),
-                        )
-                    }
-                }
+                cover.setOnClickListener { expandPlayer() }
                 miniHolder.addView(
                     cover,
                     android.widget.FrameLayout.LayoutParams(
@@ -241,6 +277,182 @@ class FeedActivity : AppCompatActivity() {
             }
             miniPlay.postDelayed(this, 2500)
         }
+    }
+
+    /**
+     * Открыть ролик прямо в оболочке — одно окно приложения, без пересоздания окон:
+     * именно переезды между окнами рвали видеослой и давали чёрный экран.
+     */
+    private fun showPlayerPane(videoId: String, title: String) {
+        if (videoId.isBlank()) { return }
+        playerMode = true
+        PlayerSession.markExpand()
+        PlayerSession.closeStalePip()
+        playerPane.visibility = android.view.View.VISIBLE
+        miniBar.visibility = android.view.View.GONE
+        PlayerSession.setMiniMode(false)
+        PlayerSession.host = this
+        PlayerSession.lastStatus = { text -> runOnUiThread { engineStatus.text = text } }
+        engineSpeed.text = speedLabel(PlayerSession.speed)
+        PlayerSession.open(this, videoId, title)
+        PlayerSession.attachTo(engineHolder)
+        PlayerSession.setAppForeground(true)
+        PlayerSession.startPlayerWatch(this)
+        PlayerSession.maybeRecoverOnReturn(this)
+    }
+
+    /** Свернуть в мини-плеер: экран прячется, ролик переезжает вниз оболочки. */
+    private fun collapsePlayer() {
+        if (!playerMode) { return }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastCollapseAt < 1200) { return }
+        lastCollapseAt = now
+        DiagLog.add("движок-плеер: сворачиваю в мини-плеер")
+        playerMode = false
+        PlayerSession.captureWantPlay()
+        PlayerSession.scheduleResumeAttempts()
+        PlayerSession.stopPlayerWatch()
+        PlayerSession.lastStatus = null
+        PlayerSession.setMiniMode(true)
+        playerPane.visibility = android.view.View.GONE
+        updateMini()
+    }
+
+    /** Развернуть из мини обратно на весь экран. */
+    private fun expandPlayer() {
+        if (PlayerSession.active) {
+            showPlayerPane(PlayerSession.videoId, PlayerSession.title)
+        }
+    }
+
+    override fun onMinimizeRequested() {
+        runOnUiThread { collapsePlayer() }
+    }
+
+    /** Системное окно «картинка-в-картинке» — отдельная кнопка. В окошке — только ролик и play/pause. */
+    private fun enterPip() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O || !playerMode) { return }
+        val ok = runCatching { enterPictureInPictureMode(pipParams(playing = true)) }.getOrDefault(false)
+        if (ok) {
+            DiagLog.add("движок-плеер: свернул в окно")
+            PlayerSession.markPip(this)
+        } else {
+            DiagLog.add("движок-плеер: окно недоступно")
+        }
+    }
+
+    /** Параметры окна: пропорции ролика и кнопка play/pause. */
+    private fun pipParams(playing: Boolean): android.app.PictureInPictureParams {
+        val toggle = android.app.PendingIntent.getBroadcast(
+            this,
+            1,
+            android.content.Intent(this, PipControls::class.java).setAction(PipControls.ACTION_TOGGLE),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val label = if (playing) "Пауза" else "Играть"
+        val action = android.app.RemoteAction(
+            android.graphics.drawable.Icon.createWithResource(
+                this,
+                if (playing) R.drawable.ic_pip_pause else R.drawable.ic_pip_play,
+            ),
+            label,
+            label,
+            toggle,
+        )
+        return android.app.PictureInPictureParams.Builder()
+            .setAspectRatio(android.util.Rational(16, 9))
+            .setActions(listOf(action))
+            .build()
+    }
+
+    override fun applyPipParams(playing: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && isInPictureInPictureMode) {
+            runCatching { setPictureInPictureParams(pipParams(playing)) }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        DiagLog.add(
+            if (isInPictureInPictureMode) "движок-плеер: в окне" else "движок-плеер: развёрнут",
+        )
+        val visibility = if (isInPictureInPictureMode) android.view.View.GONE else android.view.View.VISIBLE
+        engineTopBar.visibility = visibility
+        engineStatus.visibility = visibility
+        if (isInPictureInPictureMode) {
+            PlayerSession.markPip(this)
+            PlayerSession.keepAlive()
+            PlayerSession.applyPipLayout(true)
+            PlayerSession.captureWantPlay()
+            PlayerSession.scheduleResumeAttempts()
+            engineHolder.postDelayed({ PlayerSession.updatePipParams() }, 700)
+        } else {
+            PlayerSession.clearPip(this)
+            PlayerSession.applyPipLayout(false)
+            PlayerSession.nudgeSurface()
+        }
+    }
+
+    /** Скорость и служебное: список скоростей, прямой поток, оживление, перезагрузка. */
+    private fun showSettings() {
+        val rates = listOf(1.0, 1.25, 1.5, 2.0, 2.5, 3.0)
+        val labels = rates.map { "Скорость: " + speedLabel(it) }
+        val entries = labels + listOf(
+            "Прямой поток",
+            "Оживить видео (если чёрный экран)",
+            "Обновить страницу (с этого места)",
+            "Перезагрузить страницу",
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Плеер")
+            .setItems(entries.toTypedArray()) { _, which ->
+                when {
+                    which < rates.size -> {
+                        PlayerSession.applySpeed(this, rates[which])
+                        engineSpeed.text = speedLabel(rates[which])
+                        DiagLog.add("движок-плеер: скорость ${speedLabel(rates[which])}")
+                    }
+                    which == rates.size -> {
+                        val id = PlayerSession.videoId
+                        if (id.isEmpty()) {
+                            engineStatus.text = "движок-плеер: нет ролика для прямого потока"
+                        } else {
+                            DiagLog.add("движок-плеер: переключаю на прямой поток")
+                            startActivity(
+                                android.content.Intent(this, PlayerActivity::class.java)
+                                    .putExtra("videoId", id),
+                            )
+                        }
+                    }
+                    which == rates.size + 1 -> {
+                        PlayerSession.reviveVideo(this)
+                        engineStatus.text = "движок-плеер: оживляю видео"
+                    }
+                    which == rates.size + 2 -> {
+                        PlayerSession.reloadFromPosition()
+                        engineStatus.text = "движок-плеер: обновляю страницу с места"
+                    }
+                    else -> {
+                        PlayerSession.reload()
+                        engineStatus.text = "движок-плеер: перезагрузка"
+                    }
+                }
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
+    }
+
+    private fun speedLabel(rate: Double): String = when (rate) {
+        1.0 -> "1×"
+        1.25 -> "1,25×"
+        1.5 -> "1,5×"
+        2.0 -> "2×"
+        2.5 -> "2,5×"
+        3.0 -> "3×"
+        else -> "$rate×"
     }
 
     /** Переключение вкладок оболочки. */
@@ -522,13 +734,7 @@ class FeedActivity : AppCompatActivity() {
     private fun openItem(item: FeedItem) {
         DiagLog.add("лента: открываю ${item.videoId}")
         AppSettings.pushRecent(this, item.videoId, item.title.ifEmpty { item.videoId }, item.channel)
-        PlayerSession.closeStalePip()
-        val intent = EnginePlayerActivity.createIntent(
-            this,
-            item.videoId,
-            item.title.ifEmpty { item.videoId },
-        )
-        startActivity(intent)
+        showPlayerPane(item.videoId, item.title.ifEmpty { item.videoId })
     }
 
     /** Плейлист открываем на экране сервиса — там его ролики и порядок. */

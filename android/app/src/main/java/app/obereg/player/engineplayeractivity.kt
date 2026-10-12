@@ -25,7 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
  * Скорость — чип «1×» в шапке. Пока идёт «картинка-в-картинке», вся наша шапка скрыта,
  * чтобы в окошке был только ролик.
  */
-class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
+class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipHost {
 
     private lateinit var holder: FrameLayout
     private lateinit var statusView: TextView
@@ -186,7 +186,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
     }
 
     /** Обновить кнопку в окне (вызывает сеанс ролика). */
-    fun applyPipParams(playing: Boolean) {
+    override fun applyPipParams(playing: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
             runCatching { setPictureInPictureParams(pipParams(playing)) }
         }

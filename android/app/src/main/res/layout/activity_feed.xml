@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#0F1115">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="#0F1115">
 
     <!-- Шапка: логотип слева, поиск / уведомления / отчёт / профиль справа -->
     <LinearLayout
@@ -278,4 +283,13 @@
             android:textColor="#8B93A5"
             android:textSize="10.5sp" />
     </LinearLayout>
-</LinearLayout>
+    </LinearLayout>
+
+    <!-- Экран плеера прямо в оболочке: одно окно приложения — без переездов окон -->
+    <include
+        layout="@layout/activity_engine_player"
+        android:id="@+id/playerPane"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+</FrameLayout>

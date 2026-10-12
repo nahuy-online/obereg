@@ -32,6 +32,11 @@ object PlayerSession {
         fun onMinimizeRequested()
     }
 
+    /** Кто умеет обновлять кнопку play/pause в системном окне. */
+    interface PipHost {
+        fun applyPipParams(playing: Boolean)
+    }
+
     var host: Host? = null
     var lastStatus: ((String) -> Unit)? = null
 
@@ -93,6 +98,8 @@ object PlayerSession {
 
     /** Сторож экрана (проверка чёрного кадра) — работает только пока экран плеера на виду. */
     private var screenWatch: Runnable? = null
+    private var screenWatchHandler: Handler? = null
+    private var screenVisible = false
 
     fun markExpand() {
         lastExpandAtMs = android.os.SystemClock.elapsedRealtime()
@@ -241,6 +248,17 @@ object PlayerSession {
         ) { _ -> }
     }
 
+    /**
+     * Отметить мини-плеер: на странице показ кадров в мини-окошке проверять нельзя
+     * (проверка врёт, а лечение без проверки — это неожиданная перезагрузка).
+     */
+    fun setMiniMode(on: Boolean) {
+        val flag = if (on) "true" else "false"
+        web?.evaluateJavascript(
+            "(function(){ try { window.__oberegMiniMode = $flag; return 'ok'; } catch (e) { return 'сбой'; } })()",
+        ) { _ -> }
+    }
+
     /** Открыть ролик: если это тот же ролик — просто продолжаем, если новый — грузим. */
     fun open(context: Context, id: String, videoTitle: String) {
         val view = ensure(context)
@@ -377,6 +395,7 @@ object PlayerSession {
      * Общая защита от циклов: не чаще раза в 20 секунд.
      */
     fun recoverIfBlack(activity: Activity, reason: String, reloadOnUnknown: Boolean) {
+        if (!screenVisible) { return }
         if (!active || videoId.isBlank() || pipActive) { return }
         if (recoveryChecking) { return }
         val now = android.os.SystemClock.elapsedRealtime()
@@ -460,8 +479,9 @@ object PlayerSession {
     /** Вызов со страницы («кадры идут, но не показываются»): лечение по общим правилам. */
     private fun healFromPage() {
         val activity = watchActivity?.get()
-        if (activity == null) {
-            reloadFromPosition()
+        if (!screenVisible || activity == null) {
+            // Экран плеера не на виду (мини-плеер): без честной проверки не лечим —
+            // вернёмся к этому при развороте. Иначе получаются неожиданные перезагрузки.
             return
         }
         val now = android.os.SystemClock.elapsedRealtime()
@@ -482,6 +502,7 @@ object PlayerSession {
     fun startPlayerWatch(activity: Activity) {
         stopPlayerWatch()
         watchActivity = WeakReference(activity)
+        screenVisible = true
         val handler = Handler(Looper.getMainLooper())
         val run = object : Runnable {
             override fun run() {
@@ -490,11 +511,14 @@ object PlayerSession {
             }
         }
         screenWatch = run
+        screenWatchHandler = handler
         handler.postDelayed(run, 6000)
     }
 
     fun stopPlayerWatch() {
-        screenWatch?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        screenVisible = false
+        screenWatchHandler?.removeCallbacksAndMessages(null)
+        screenWatchHandler = null
         screenWatch = null
         watchActivity = null
     }
@@ -556,10 +580,10 @@ object PlayerSession {
 
     /** Обновить значок play/pause в системном окне по текущему состоянию ролика. */
     fun updatePipParams() {
-        val activity = pipActivity?.get() as? EnginePlayerActivity ?: return
+        val pipHost = pipActivity?.get() as? PipHost ?: return
         web?.evaluateJavascript(JS_PAUSED) { raw ->
             val playing = PlayerApi.decodeJsString(raw) != "1"
-            Handler(Looper.getMainLooper()).post { activity.applyPipParams(playing) }
+            Handler(Looper.getMainLooper()).post { pipHost.applyPipParams(playing) }
         }
     }
 
@@ -2051,7 +2075,7 @@ object PlayerSession {
             function watchStuck() {
               try {
                 var v = (window.__oberegVideo ? window.__oberegVideo() : null);
-                if (!v || window.__oberegPipMode === true || window.__oberegAppForeground === false) { stuckSince = 0; return; }
+                if (!v || window.__oberegPipMode === true || window.__oberegMiniMode === true || window.__oberegAppForeground === false) { stuckSince = 0; return; }
                 // Первые 20 секунд после загрузки страницы — не сбой, а сеть/буферизация.
                 if (Date.now() - (window.__oberegLoadedAt || 0) < 20000) { stuckSince = 0; return; }
                 if (window.__oberegWantPlay === false) { stuckSince = 0; return; }
@@ -2073,7 +2097,7 @@ object PlayerSession {
                 if (!presEl) { return; }
                 var v = presEl;
                 // В фоне показ не проверяем (звук без картинки там — норма); в «окне» — проверяем: оно видно.
-                if (!v || v.paused || (window.__oberegAppForeground === false && window.__oberegPipMode !== true)) {
+                if (!v || v.paused || window.__oberegMiniMode === true || (window.__oberegAppForeground === false && window.__oberegPipMode !== true)) {
                   presAt = Date.now();
                   return;
                 }
@@ -2095,7 +2119,7 @@ object PlayerSession {
               try {
                 var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                 var h = host();
-                if (!v || v.paused || v.currentTime < 0.5 || window.__oberegPipMode === true) { videoFramesLast = -1; videoStallSince = 0; return; }
+                if (!v || v.paused || v.currentTime < 0.5 || window.__oberegPipMode === true || window.__oberegMiniMode === true) { videoFramesLast = -1; videoStallSince = 0; return; }
                 // Первые 12 секунд после загрузки страницы — это ещё загрузка, а не стояние потока.
                 if (Date.now() - (window.__oberegLoadedAt || 0) < 12000) { videoFramesLast = -1; videoStallSince = 0; return; }
                 if (Date.now() < videoRescueCooldownUntil) { return; }

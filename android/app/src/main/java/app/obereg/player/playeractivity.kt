@@ -166,7 +166,9 @@ private var playbackSpeed = 1.0f
                 currentVideoId = engineVideo
                 DiagLog.add("движок-плеер: запуск для $engineVideo")
                 startActivity(
-                    android.content.Intent(this, EnginePlayerActivity::class.java).putExtra("videoId", engineVideo),
+                    android.content.Intent(this, FeedActivity::class.java)
+                        .putExtra("videoId", engineVideo)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 )
             }
         }
@@ -359,7 +361,8 @@ private var playbackSpeed = 1.0f
                         }
                     },
                     visitorDataProvider = { AppSettings.visitorData(this) },
-                    pageResponseProvider = { engineResponse },
+                    pageResponseProvider = { engineResponse },
+
                     pagePlayerProvider = { pagePlayerFetch(videoId) },
                 ).resolveDetailed(videoId)
             }.getOrElse { error ->

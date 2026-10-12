@@ -23,6 +23,8 @@
         <activity
             android:name=".FeedActivity"
             android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|layoutDirection"
+            android:supportsPictureInPicture="true"
             android:exported="false" />
         <activity
             android:name=".ProfileActivity"
