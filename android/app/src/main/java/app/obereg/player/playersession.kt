@@ -66,6 +66,12 @@ object PlayerSession {
     /** Когда в последний раз просили развернуть плеер: после этого мгновенные «свайпы» гасим. */
     var lastExpandAtMs = 0L
 
+    /** Последняя позиция ролика из «пульса» — для пересборки плеера с места. */
+    private var lastPositionMs = 0L
+
+    /** Последний контейнер, куда ролик был пристыкован (для пересборки). */
+    private var lastContainer: WeakReference<FrameLayout>? = null
+
     fun markExpand() {
         lastExpandAtMs = android.os.SystemClock.elapsedRealtime()
     }
@@ -231,6 +237,7 @@ object PlayerSession {
 
     /** Показать ролик в указанном контейнере (экран плеера или мини-плеер оболочки). */
     fun attachTo(container: FrameLayout) {
+        lastContainer = WeakReference(container)
         val view = web ?: return
         if (view.parent === container) {
             keepAlive()
@@ -351,6 +358,47 @@ object PlayerSession {
 
     fun reload() { web?.reload() }
 
+    /** Ручное «оживление» видео (кнопка в меню плеера): пересобрать слой, сдвинуть время. */
+    fun reviveVideo() {
+        DiagLog.add("движок-плеер: оживляю видео вручную")
+        web?.evaluateJavascript(JS_REVIVE) { _ -> }
+    }
+
+    /** Пересобрать плеер с текущего места: свежий WebView — свежий видеослой. */
+    fun rebuildFromPosition() {
+        val id = videoId
+        val ctx = appContext
+        if (id.isBlank() || id.startsWith("http") || ctx == null) {
+            DiagLog.add("движок-плеер: пересборка недоступна")
+            return
+        }
+        val sec = (lastPositionMs / 1000).coerceAtLeast(0L)
+        DiagLog.add("движок-плеер: пересобираю плеер с места ${sec}с")
+        val container = lastContainer?.get()
+        detach()
+        runCatching { web?.destroy() }
+        web = null
+        videoId = ""
+        wantPlay = true
+        lastPlaying = null
+        val view = ensure(ctx)
+        videoId = id
+        view.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru&t=${sec}s")
+        PlaybackService.ensure(ctx)
+        if (container != null) {
+            container.removeAllViews()
+            container.addView(
+                view,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            keepAlive()
+            wakeAfterAttach()
+        }
+    }
+
     /** Закрыть ролик совсем: страница уничтожается, мини-плеер прячется, уведомление исчезает. */
     fun release() {
         detach()
@@ -440,6 +488,7 @@ object PlayerSession {
     /** «Пульс» со страницы: состояние ролика для медиа-уведомления (раз в секунду). */
     private fun onMediaPulse(json: String) {
         val pulse = PlaybackCodec.parsePulse(json) ?: return
+        lastPositionMs = pulse.positionMs
         if (pulse.title.isNotBlank()) {
             title = pulse.title
         }
@@ -761,6 +810,11 @@ object PlayerSession {
         })()
     """.trimIndent()
 
+    /** Ручное «оживление» видео из меню плеера (для чёрного экрана). */
+    private val JS_REVIVE = """
+        (function(){ try { return (window.__oberegRevive ? window.__oberegRevive() : 'нет'); } catch (e) { return 'сбой'; } })()
+    """.trimIndent()
+
     /** Разбудить страницу после переезда: продолжить, если нужно, и починить картинку/вёрстку. */
     private val JS_WAKE = """
         (function(){
@@ -1019,21 +1073,26 @@ object PlayerSession {
             document.addEventListener('blur', function (e) { try { e.stopImmediatePropagation(); } catch (err) { } }, true);
           } catch (e) { }
           try {
-            // Активное видео: у страницы бывает несколько <video> — берём живое.
+            // Активное видео: у страницы бывает несколько <video> — берём самое «живое»:
+            // играющее, готовое к показу и самое крупное (иначе можно попасть на мёртвый слой).
             if (!window.__oberegVideo) {
               window.__oberegVideo = function () {
                 try {
-                  var p = document.getElementById('movie_player');
-                  if (p) {
-                    var v = p.querySelector('video');
-                    if (v && !v.ended) { return v; }
-                  }
                   var list = document.querySelectorAll('video');
                   var best = null;
+                  var bestScore = -1;
                   for (var i = 0; i < list.length; i++) {
                     var c = list[i];
                     if (!c || c.ended) { continue; }
-                    if (!best || (c.currentTime || 0) > (best.currentTime || 0)) { best = c; }
+                    var score = 0;
+                    try {
+                      var r = c.getBoundingClientRect();
+                      score += Math.min(Math.round(r.width * r.height), 2000000);
+                    } catch (e) { }
+                    try { if (!c.paused) { score += 500000; } } catch (e) { }
+                    try { if (c.readyState >= 2) { score += 300000; } } catch (e) { }
+                    try { score += Math.min(Math.round((c.currentTime || 0) * 100), 30000); } catch (e) { }
+                    if (score > bestScore) { bestScore = score; best = c; }
                   }
                   if (best) { return best; }
                 } catch (e) { }
@@ -1052,17 +1111,40 @@ object PlayerSession {
               };
             }
             // «Встряска слоя»: страховка от чёрного кадра после переездов (звук есть, картинки нет) —
-            // на кадр прячем видео и показываем заново: видеослой пересобирается.
+            // на ~0,15 с прячем ВСЕ видеослои и показываем заново. ВАЖНО: возврат всегда к пустому
+            // значению (стиль страницы), а не к тому, что было «до»: если таймер возврата потеряется
+            // в момент переезда окна, мы не закрепим сами себе скрытие — а сторож в цикле поднимет.
             if (!window.__oberegKick) {
               window.__oberegKick = function (reason) {
                 try {
-                  var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
-                  if (!v) { return 'нет видео'; }
-                  var d = v.style.display;
-                  v.style.display = 'none';
-                  setTimeout(function () {
-                    try { v.style.display = d || ''; } catch (e) { }
-                  }, 60);
+                  var list = document.querySelectorAll('video');
+                  for (var i = 0; i < list.length; i++) {
+                    (function (v) {
+                      try {
+                        v.style.display = 'none';
+                        v.style.visibility = 'hidden';
+                        v.style.transform = 'translateZ(0.0001px)';
+                        setTimeout(function () {
+                          try {
+                            v.style.display = '';
+                            v.style.visibility = '';
+                            v.style.transform = '';
+                          } catch (e) { }
+                        }, 150);
+                      } catch (e) { }
+                    })(list[i]);
+                  }
+                  return 'ок';
+                } catch (e) { return 'сбой'; }
+              };
+            }
+            // Ручное «оживление» из меню плеера: та же встряска + лёгкий сдвиг времени.
+            if (!window.__oberegRevive) {
+              window.__oberegRevive = function () {
+                try {
+                  if (window.__oberegKick) { window.__oberegKick('ручное'); }
+                  var a = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+                  if (a) { try { a.currentTime = (a.currentTime || 0) + 0.4; } catch (e) { } }
                   return 'ок';
                 } catch (e) { return 'сбой'; }
               };
@@ -1377,13 +1459,26 @@ object PlayerSession {
                   var cs = window.getComputedStyle ? getComputedStyle(player) : null;
                   parts.push('игрок:' + Math.round(pr.height) + '@' + Math.round(pr.top) + (cs ? (':' + cs.position) : ''));
                 }
-                var video = document.querySelector('video');
+                var video = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                 if (video) {
                   var vr = video.getBoundingClientRect();
                   parts.push('видео:' + Math.round(vr.height) + '@' + Math.round(vr.top));
                 } else {
                   parts.push('видео:нет');
                 }
+                try {
+                  var vs = document.querySelectorAll('video');
+                  var lay = [];
+                  for (var vi = 0; vi < vs.length && vi < 4; vi++) {
+                    var lv = vs[vi];
+                    if (!lv) { continue; }
+                    var lr = lv.getBoundingClientRect();
+                    var fr = -1;
+                    try { if (typeof lv.getVideoPlaybackQuality === 'function') { fr = lv.getVideoPlaybackQuality().totalVideoFrames; } } catch (e) { }
+                    lay.push('[' + Math.round(lr.width) + 'x' + Math.round(lr.height) + ' rs' + (lv.readyState || 0) + (lv.paused ? ' п' : ' и') + ' f' + fr + ']');
+                  }
+                  parts.push('слои:' + vs.length + lay.join(''));
+                } catch (e) { }
                 var app = document.querySelector('ytm-app');
                 if (app) {
                   var acs = getComputedStyle(app);
@@ -1503,6 +1598,23 @@ object PlayerSession {
                   } catch (e) { }
                 }
                 videoWatch();
+                try {
+                  // Сторож показа: если активное играющее видео оказалось скрытым (наша встряска
+                  // застряла или страница спрятала слой) — возвращаем показ, это и есть чёрный экран.
+                  if (window.__oberegPipMode !== true) {
+                    var av = (window.__oberegVideo ? window.__oberegVideo() : null);
+                    if (av && (!av.paused || (av.currentTime || 0) > 1)) {
+                      var acs = getComputedStyle(av);
+                      if (acs.display === 'none' || acs.visibility === 'hidden') {
+                        av.style.display = '';
+                        av.style.visibility = '';
+                        if (av.style.transform && av.style.transform.indexOf('translateZ(0.0001px)') >= 0) { av.style.transform = ''; }
+                        var h4 = host();
+                        if (h4 && h4.note) { h4.note('видео было скрыто — вернул показ'); }
+                      }
+                    }
+                  }
+                } catch (e) { }
                 var player = document.getElementById('movie_player');
                 var video = document.querySelector('video');
                 if (!video) { return; }
