@@ -72,6 +72,19 @@ object PlayerSession {
     /** Последний контейнер, куда ролик был пристыкован (для пересборки). */
     private var lastContainer: WeakReference<FrameLayout>? = null
 
+    /** Когда страница ролика последний раз догрузилась: защита от «возвратных» перезагрузок на свежем открытии. */
+    private var pageLoadedAtMs = 0L
+
+    /** Когда последний раз возвращали поток перезагрузкой с места (общая защита от циклов). */
+    private var lastRecoveryAtMs = 0L
+
+    /** «Пульс»: двигалась ли позиция ролика в последние секунды — признак живого воспроизведения. */
+    private var lastPulsePosMs = 0L
+    private var lastPulseMoveAt = 0L
+
+    /** Сторож экрана (проверка чёрного кадра) — работает только пока экран плеера на виду. */
+    private var screenWatch: Runnable? = null
+
     fun markExpand() {
         lastExpandAtMs = android.os.SystemClock.elapsedRealtime()
     }
@@ -139,6 +152,7 @@ object PlayerSession {
         view.webViewClient = object : WebViewClient() {
             override fun onPageFinished(v: WebView?, url: String?) {
                 reloadTried = false
+                pageLoadedAtMs = android.os.SystemClock.elapsedRealtime()
                 injectTuning(v)
             }
 
@@ -230,6 +244,7 @@ object PlayerSession {
             videoId = id
             wantPlay = true
             lastPlaying = null
+            pageLoadedAtMs = 0L
             DiagLog.add("движок-плеер: открыт для $id (скорость ${speedLabel(speed)})")
             val url = if (id.startsWith("http")) id else "https://www.youtube.com/watch?v=$id&hl=ru"
             view.loadUrl(url)
@@ -282,6 +297,117 @@ object PlayerSession {
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 150)
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 1200)
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 2600)
+    }
+
+    /**
+     * Проверка кадра глазами экрана: берём полосу в области ролика из окна и смотрим,
+     * не чёрная ли она. Ловит случай, невидимый изнутри страницы (кадры «показываются»,
+     * а на экране черно). true — чёрный, false — есть картинка, null — не удалось прочитать.
+     */
+    private fun sampleBlack(activity: Activity, callback: (Boolean?) -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < 26) { callback(null); return }
+        val window = activity.window
+        val view = window?.decorView
+        val w = view?.width ?: 0
+        val h = view?.height ?: 0
+        if (window == null || w <= 0 || h <= 0) { callback(null); return }
+        val rect = android.graphics.Rect(
+            (w * 0.25).toInt(),
+            (h * 0.12).toInt(),
+            (w * 0.75).toInt(),
+            (h * 0.25).toInt(),
+        )
+        val bitmap = android.graphics.Bitmap.createBitmap(64, 24, android.graphics.Bitmap.Config.ARGB_8888)
+        runCatching {
+            android.view.PixelCopy.request(window, rect, bitmap, { result ->
+                if (result != android.view.PixelCopy.SUCCESS) {
+                    callback(null)
+                    return@request
+                }
+                var dark = 0
+                var total = 0
+                for (y in 0 until bitmap.height) {
+                    for (x in 0 until bitmap.width) {
+                        val p = bitmap.getPixel(x, y)
+                        val lum = ((p shr 16 and 0xFF) + (p shr 8 and 0xFF) + (p and 0xFF)) / 3
+                        total++
+                        if (lum < 20) { dark++ }
+                    }
+                }
+                callback(total > 0 && dark * 100 / total >= 98)
+            }, Handler(Looper.getMainLooper()))
+        }.onFailure { callback(null) }
+    }
+
+    /** Двойной замер: «чёрный» — только если оба раза чёрно (защита от случайного кадра). */
+    fun checkScreenBlack(activity: Activity, callback: (Boolean?) -> Unit) {
+        sampleBlack(activity) { first ->
+            if (first == false) {
+                callback(false)
+                return@sampleBlack
+            }
+            Handler(Looper.getMainLooper()).postDelayed({
+                sampleBlack(activity) { second ->
+                    when {
+                        second == false -> callback(false)
+                        first == true && second == true -> callback(true)
+                        else -> callback(null)
+                    }
+                }
+            }, 650)
+        }
+    }
+
+    /** Видео сейчас «живое»: играем и позиция двигалась в последние секунды. */
+    private fun positionAlive(): Boolean =
+        wantPlay && lastPlaying == true &&
+            android.os.SystemClock.elapsedRealtime() - lastPulseMoveAt < 4000
+
+    /**
+     * Если кадр чёрный (или не читается — когда reloadOnUnknown), вернуть поток обновлением с места.
+     * Общая защита от циклов: не чаще раза в 20 секунд.
+     */
+    fun recoverIfBlack(activity: Activity, reason: String, reloadOnUnknown: Boolean) {
+        if (!active || videoId.isBlank() || pipActive) { return }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastRecoveryAtMs < 20000) { return }
+        if (!positionAlive()) { return }
+        checkScreenBlack(activity) { black ->
+            if (black == true || (black == null && reloadOnUnknown)) {
+                lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
+                web?.evaluateJavascript(
+                    "(function(){ try { var h = window.__oberegHost; if (h && h.note) { h.note('$reason — кадра нет — обновляю поток с места'); } } catch (e) { } return 'ok'; })()",
+                ) { _ -> }
+                reloadFromPosition()
+            }
+        }
+    }
+
+    /** Возврат к экрану плеера: быстро проверить кадр (после окна/мини/фона он часто чёрный). */
+    fun maybeRecoverOnReturn(activity: Activity) {
+        if (!active || videoId.isBlank() || pageLoadedAtMs <= 0L) { return }
+        Handler(Looper.getMainLooper()).postDelayed({
+            recoverIfBlack(activity, "возврат в плеер", reloadOnUnknown = true)
+        }, 1500)
+    }
+
+    /** Сторож экрана: пока экран плеера на виду — раз в 6 секунд проверяем кадр. */
+    fun startPlayerWatch(activity: Activity) {
+        stopPlayerWatch()
+        val handler = Handler(Looper.getMainLooper())
+        val run = object : Runnable {
+            override fun run() {
+                recoverIfBlack(activity, "страж экрана", reloadOnUnknown = false)
+                handler.postDelayed(this, 6000)
+            }
+        }
+        screenWatch = run
+        handler.postDelayed(run, 6000)
+    }
+
+    fun stopPlayerWatch() {
+        screenWatch?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        screenWatch = null
     }
 
     /** Сказать странице, что мы хотим играть: страж паузы пропускает только своё. */
@@ -372,41 +498,50 @@ object PlayerSession {
         ) { _ -> }
     }
 
-    fun reload() { web?.reload() }
+    fun reload() {
+        pageLoadedAtMs = 0L
+        lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
+        web?.reload()
+    }
 
     /** Обновить страницу с текущего места — проверенный способ вернуть видеопоток. */
     fun reloadFromPosition() {
-        val id = PlaybackCodec.sanitizeVideoId(videoId)
-        if (id.isBlank() || videoId.startsWith("http")) {
-            DiagLog.add("движок-плеер: обновление с места недоступно")
-            return
-        }
         val sec = (lastPositionMs / 1000).coerceAtLeast(0L)
+        val url = if (videoId.startsWith("http")) {
+            // Отладочный адрес (стенд): возвращаем как есть, с меткой места.
+            videoId + (if (videoId.contains("?")) "&" else "?") + "t=${sec}s"
+        } else {
+            val id = PlaybackCodec.sanitizeVideoId(videoId)
+            if (id.isBlank()) {
+                DiagLog.add("движок-плеер: обновление с места недоступно")
+                return
+            }
+            "https://www.youtube.com/watch?v=$id&hl=ru&t=${sec}s"
+        }
         DiagLog.add("движок-плеер: обновляю страницу с места ${sec}с")
         DiagLog.add("движок-плеер: аудио — " + audioAudit())
         wantPlay = true
         lastPlaying = null
-        web?.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru&t=${sec}s")
+        pageLoadedAtMs = 0L
+        lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
+        web?.loadUrl(url)
     }
 
-    /** Ручное «оживление» видео (кнопка в меню плеера): вернуть стили и встряхнуть; если картинка не вернулась — обновить с места. */
-    fun reviveVideo() {
+    /** Ручное «оживление» видео (кнопка в меню): встряхнуть и проверить кадр по-настоящему; чёрный — обновляем с места. */
+    fun reviveVideo(activity: Activity) {
         DiagLog.add("движок-плеер: оживляю видео вручную")
         DiagLog.add("движок-плеер: аудио — " + audioAudit())
         web?.evaluateJavascript(JS_REVIVE) { _ -> }
         Handler(Looper.getMainLooper()).postDelayed({
-            web?.evaluateJavascript(JS_PRESENTED) { raw ->
-                when (PlayerApi.decodeJsString(raw).orEmpty()) {
-                    "1" -> DiagLog.add("движок-плеер: оживление — картинка на месте")
-                    "п" -> DiagLog.add("движок-плеер: оживление — ролик на паузе")
-                    "н" -> DiagLog.add("движок-плеер: оживление — видео не найдено")
-                    else -> {
-                        DiagLog.add("движок-плеер: оживление не помогло — обновляю страницу с места")
-                        reloadFromPosition()
-                    }
+            checkScreenBlack(activity) { black ->
+                if (black == false) {
+                    DiagLog.add("движок-плеер: оживление — картинка на месте")
+                } else {
+                    DiagLog.add("движок-плеер: оживление — кадра нет — обновляю страницу с места")
+                    reloadFromPosition()
                 }
             }
-        }, 1800)
+        }, 1400)
     }
 
     /** Кто сейчас «играет» на телефоне: наш процесс или чужой (для звука без картинки). */
@@ -558,6 +693,10 @@ object PlayerSession {
     private fun onMediaPulse(json: String) {
         val pulse = PlaybackCodec.parsePulse(json) ?: return
         lastPositionMs = pulse.positionMs
+        if (pulse.positionMs != lastPulsePosMs) {
+            lastPulsePosMs = pulse.positionMs
+            lastPulseMoveAt = android.os.SystemClock.elapsedRealtime()
+        }
         if (pulse.title.isNotBlank()) {
             title = pulse.title
         }
@@ -1819,11 +1958,12 @@ object PlayerSession {
                 // Совсем нет обратных вызовов о показе — значит, среда не поддерживает проверку: отключаемся.
                 if (presCount === 0 && Date.now() - presBindAt > 12000) { presDisabled = true; return; }
                 if (Date.now() - presAt < 3000) { return; }
-                // Кадры декодируются? Если тоже стоят — это буферизация, не наш случай.
+                // Кадры декодируются? Если стоят или их ещё нет — это загрузка/буферизация, не наш случай.
                 var q = null;
                 try { q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null; } catch (e) { }
                 var dec = q ? q.totalVideoFrames : -1;
-                if (dec >= 0 && dec <= presFramesAt) { presAt = Date.now(); return; }
+                if (dec <= 0) { presAt = Date.now(); return; }
+                if (dec <= presFramesAt) { presAt = Date.now(); return; }
                 presFramesAt = dec;
                 // Кадры идут, а на экран не выводятся — сразу возвращаем поток обновлением с места.
                 if (!autoReload('кадры идут, но не показываются — обновляю с места (авто)', 'авто-кадры')) { presAt = Date.now(); }

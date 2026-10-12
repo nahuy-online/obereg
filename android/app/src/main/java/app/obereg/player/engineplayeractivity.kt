@@ -78,6 +78,8 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
             // Страховка: если вышли из окна без события, вернём обычную вёрстку страницы.
             PlayerSession.applyPipLayout(false)
         }
+        PlayerSession.startPlayerWatch(this)
+        PlayerSession.maybeRecoverOnReturn(this)
         speedChip.text = speedLabel(PlayerSession.speed)
     }
 
@@ -91,6 +93,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
 
     override fun onPause() {
         super.onPause()
+        PlayerSession.stopPlayerWatch()
         PlayerSession.setAppForeground(false)
         // Экран уходит в окно или приложение сворачивается — не даём странице заснуть:
         // так ролик играет в «окне» и в фоне, и кнопки play/pause снова работают.
@@ -239,7 +242,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
                         }
                     }
                     which == rates.size + 1 -> {
-                        PlayerSession.reviveVideo()
+                        PlayerSession.reviveVideo(this)
                         statusView.text = "движок-плеер: оживляю видео"
                     }
                     which == rates.size + 2 -> {
