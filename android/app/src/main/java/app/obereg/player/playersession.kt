@@ -853,7 +853,20 @@ object PlayerSession {
             try {
               var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
               if (!v) { return; }
+              var keys = ['position','top','left','width','height','max-width','max-height','object-fit','z-index','background'];
               if (force) {
+                // Запоминаем ТОЧНЫЕ стили страницы — вернём их при выходе из окна (нельзя терять ни байта).
+                if (!v.__oberegStyleSaved) {
+                  v.__oberegStyleSaved = {};
+                  for (var i = 0; i < keys.length; i++) {
+                    try {
+                      v.__oberegStyleSaved[keys[i]] = {
+                        value: v.style.getPropertyValue(keys[i]),
+                        priority: v.style.getPropertyPriority(keys[i])
+                      };
+                    } catch (e) { }
+                  }
+                }
                 v.style.setProperty('position', 'fixed', 'important');
                 v.style.setProperty('top', '0', 'important');
                 v.style.setProperty('left', '0', 'important');
@@ -865,9 +878,18 @@ object PlayerSession {
                 v.style.setProperty('z-index', '2147483646', 'important');
                 v.style.setProperty('background', '#000', 'important');
               } else {
-                ['position','top','left','width','height','max-width','max-height','object-fit','z-index','background'].forEach(function(k){
-                  try { v.style.removeProperty(k); } catch (e) { }
-                });
+                var saved = v.__oberegStyleSaved;
+                for (var j = 0; j < keys.length; j++) {
+                  try {
+                    var item = saved ? saved[keys[j]] : null;
+                    if (item && item.value) {
+                      v.style.setProperty(keys[j], item.value, item.priority || '');
+                    } else {
+                      v.style.removeProperty(keys[j]);
+                    }
+                  } catch (e) { }
+                }
+                v.__oberegStyleSaved = null;
               }
             } catch (e) { }
           }
@@ -887,8 +909,12 @@ object PlayerSession {
                   if (k === node) { continue; }
                   if (k.contains && k.contains(v)) { continue; }
                   if (k.style && k.style.display !== 'none') {
+                    try {
+                      window.__oberegPipHidden.push({ el: k, value: k.style.getPropertyValue('display'), priority: k.style.getPropertyPriority('display') });
+                    } catch (e) {
+                      window.__oberegPipHidden.push({ el: k, value: '', priority: '' });
+                    }
                     k.style.setProperty('display', 'none', 'important');
-                    window.__oberegPipHidden.push(k);
                   }
                 }
                 node = parent;
@@ -900,7 +926,15 @@ object PlayerSession {
             try {
               var arr = window.__oberegPipHidden || [];
               for (var i = 0; i < arr.length; i++) {
-                try { arr[i].style.removeProperty('display'); } catch (e) { }
+                try {
+                  var item = arr[i];
+                  if (item && item.el) {
+                    if (item.value) { item.el.style.setProperty('display', item.value, item.priority || ''); }
+                    else { item.el.style.removeProperty('display'); }
+                  } else if (item) {
+                    item.style.removeProperty('display');
+                  }
+                } catch (e) { }
               }
               window.__oberegPipHidden = [];
             } catch (e) { }
@@ -1117,14 +1151,26 @@ object PlayerSession {
                 } catch (e) { return 'сбой'; }
               };
             }
-            // Ручное «оживление» из меню плеера: снять скрытие, вернуть размер, слегка сдвинуть время.
+            // Ручное «оживление» из меню плеера: вернуть стили страницы, снять скрытие, вернуть размер.
             if (!window.__oberegRevive) {
               window.__oberegRevive = function () {
                 try {
                   var a = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (!a) { return 'нет видео'; }
-                  try { a.style.display = 'block'; a.style.visibility = ''; } catch (e) { }
-                  try { if (a.style.transform && a.style.transform.indexOf('translateZ(0.0001px)') >= 0) { a.style.transform = ''; } } catch (e) { }
+                  try {
+                    var s = a.__oberegStyleSaved;
+                    if (s) {
+                      ['position','top','left','width','height','max-width','max-height','object-fit','z-index','background','display'].forEach(function (k) {
+                        try {
+                          if (s[k] && s[k].value) { a.style.setProperty(k, s[k].value, s[k].priority || ''); }
+                          else { a.style.removeProperty(k); }
+                        } catch (e) { }
+                      });
+                      a.__oberegStyleSaved = null;
+                      a.__oberegForced = false;
+                    }
+                  } catch (e) { }
+                  try { a.style.visibility = ''; } catch (e) { }
                   var r = a.getBoundingClientRect();
                   if (r.height < 40 && a.__oberegGoodH >= 40) { a.style.setProperty('height', a.__oberegGoodH + 'px', 'important'); }
                   if (r.width < 40) { a.style.setProperty('width', (a.__oberegGoodW >= 100 ? a.__oberegGoodW + 'px' : '100%'), 'important'); }
@@ -1151,10 +1197,15 @@ object PlayerSession {
                     var v = list[i];
                     if (v && v.__oberegForced) {
                       try {
-                        v.style.removeProperty('height');
-                        v.style.removeProperty('width');
-                        v.style.removeProperty('display');
+                        var s = v.__oberegStyleSaved;
+                        ['height','width','display'].forEach(function (k) {
+                          try {
+                            if (s && s[k] && s[k].value) { v.style.setProperty(k, s[k].value, s[k].priority || ''); }
+                            else { v.style.removeProperty(k); }
+                          } catch (e) { }
+                        });
                       } catch (e) { }
+                      v.__oberegStyleSaved = null;
                       v.__oberegForced = false;
                     }
                   }
@@ -1358,7 +1409,15 @@ object PlayerSession {
                 } else {
                   var arr = window.__oberegPipHidden || [];
                   for (var ai = 0; ai < arr.length; ai++) {
-                    try { arr[ai].style.removeProperty('display'); } catch (e) { }
+                    try {
+                      var item = arr[ai];
+                      if (item && item.el) {
+                        if (item.value) { item.el.style.setProperty('display', item.value, item.priority || ''); }
+                        else { item.el.style.removeProperty('display'); }
+                      } else if (item) {
+                        item.style.removeProperty('display');
+                      }
+                    } catch (e) { }
                   }
                   if (arr.length) { window.__oberegPipHidden = []; }
                 }
@@ -1642,7 +1701,7 @@ object PlayerSession {
                       if (ar.width >= 100 && ar.height >= 40) {
                         av.__oberegGoodW = Math.round(ar.width);
                         av.__oberegGoodH = Math.round(ar.height);
-                      } else if (av.__oberegGoodW || av.__oberegGoodH || true) {
+                      } else {
                         var targetH = av.__oberegGoodH || 0;
                         if (targetH < 40) {
                           var nd = av.parentElement;
@@ -1653,6 +1712,12 @@ object PlayerSession {
                             nd = nd.parentElement;
                             hh++;
                           }
+                        }
+                        if (!av.__oberegStyleSaved) {
+                          av.__oberegStyleSaved = {};
+                          ['height','width','display'].forEach(function (k) {
+                            try { av.__oberegStyleSaved[k] = { value: av.style.getPropertyValue(k), priority: av.style.getPropertyPriority(k) }; } catch (e) { }
+                          });
                         }
                         var sized = false;
                         if (ar.height < 40 && targetH >= 40) { av.style.setProperty('height', targetH + 'px', 'important'); sized = true; }
