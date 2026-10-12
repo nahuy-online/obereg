@@ -263,6 +263,11 @@ object PlayerSession {
     private fun wakeAfterAttach() {
         pushWantToJs()
         runCatching { web?.invalidate() }
+        // Мигание видимости на уровне вида (не страницы): заставляет заново собрать слой окна.
+        runCatching {
+            web?.visibility = View.INVISIBLE
+            Handler(Looper.getMainLooper()).postDelayed({ runCatching { web?.visibility = View.VISIBLE } }, 120)
+        }
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 150)
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 1200)
         Handler(Looper.getMainLooper()).postDelayed({ web?.evaluateJavascript(JS_WAKE) { _ -> } }, 2600)
@@ -661,6 +666,8 @@ object PlayerSession {
     private val JS_PAUSED = """
         (function(){
           try {
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+            if (v && typeof v.paused === 'boolean') { return v.paused ? '1' : '0'; }
             var p = document.getElementById('movie_player');
             try {
               if (p && typeof p.getPlayerState === 'function') {
@@ -669,8 +676,7 @@ object PlayerSession {
                 if (s === 2 || s === 5 || s === -1) { return '1'; }
               }
             } catch (e) { }
-            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
-            return v && v.paused ? '1' : '0';
+            return '1';
           } catch (e) { return '1'; }
         })()
     """.trimIndent()
@@ -699,13 +705,16 @@ object PlayerSession {
             var p = document.getElementById('movie_player');
             var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
             var playing = null;
-            try {
-              if (p && typeof p.getPlayerState === 'function') {
-                var s = p.getPlayerState();
-                playing = (s === 1 || s === 3);
-              }
-            } catch (e) { }
-            if (playing === null) { playing = v ? !v.paused : false; }
+            if (v && typeof v.paused === 'boolean') { playing = !v.paused; }
+            if (playing === null) {
+              try {
+                if (p && typeof p.getPlayerState === 'function') {
+                  var s = p.getPlayerState();
+                  playing = (s === 1 || s === 3);
+                }
+              } catch (e) { }
+            }
+            if (playing === null) { playing = false; }
             if (playing) {
               window.__oberegWantPlay = false;
               window.__oberegAllowPause = true;
@@ -826,7 +835,6 @@ object PlayerSession {
               try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
               try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
             }
-            try { if (typeof window.__oberegKick === 'function') { window.__oberegKick('пробуждение'); } } catch (e) { }
             try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
             try { if (typeof window.__oberegReflowRescue === 'function') { window.__oberegReflowRescue('пробуждение'); } } catch (e) { }
             return 'ok';
@@ -911,7 +919,6 @@ object PlayerSession {
               isolatePip();
               var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
               if (v) { try { v.setAttribute('playsinline',''); } catch (e) { } }
-              setTimeout(function(){ try { if (window.__oberegKick) { window.__oberegKick('окно'); } } catch (e) { } }, 500);
               setTimeout(function(){
                 try {
                   var h = window.__oberegHost;
@@ -932,7 +939,6 @@ object PlayerSession {
               enforcePipVideo(false);
               restorePip();
               setTimeout(function(){
-                try { if (window.__oberegKick) { window.__oberegKick('выход из окна'); } } catch (e) { }
                 try { if (window.__oberegNudge) { window.__oberegNudge('выход из окна'); } } catch (e) { }
                 try { if (window.__oberegReflowRescue) { window.__oberegReflowRescue('выход из окна'); } } catch (e) { }
               }, 300);
@@ -1110,41 +1116,23 @@ object PlayerSession {
                 } catch (e) { return 'сбой'; }
               };
             }
-            // «Встряска слоя»: страховка от чёрного кадра после переездов (звук есть, картинки нет) —
-            // на ~0,15 с прячем ВСЕ видеослои и показываем заново. ВАЖНО: возврат всегда к пустому
-            // значению (стиль страницы), а не к тому, что было «до»: если таймер возврата потеряется
-            // в момент переезда окна, мы не закрепим сами себе скрытие — а сторож в цикле поднимет.
-            if (!window.__oberegKick) {
-              window.__oberegKick = function (reason) {
-                try {
-                  var list = document.querySelectorAll('video');
-                  for (var i = 0; i < list.length; i++) {
-                    (function (v) {
-                      try {
-                        v.style.display = 'none';
-                        v.style.visibility = 'hidden';
-                        v.style.transform = 'translateZ(0.0001px)';
-                        setTimeout(function () {
-                          try {
-                            v.style.display = '';
-                            v.style.visibility = '';
-                            v.style.transform = '';
-                          } catch (e) { }
-                        }, 150);
-                      } catch (e) { }
-                    })(list[i]);
-                  }
-                  return 'ок';
-                } catch (e) { return 'сбой'; }
-              };
-            }
-            // Ручное «оживление» из меню плеера: та же встряска + лёгкий сдвиг времени.
+            // Ручное «оживление» из меню плеера: снять скрытие с активного видео и его контейнеров.
             if (!window.__oberegRevive) {
               window.__oberegRevive = function () {
                 try {
-                  if (window.__oberegKick) { window.__oberegKick('ручное'); }
                   var a = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
-                  if (a) { try { a.currentTime = (a.currentTime || 0) + 0.4; } catch (e) { } }
+                  if (!a) { return 'нет видео'; }
+                  try { a.style.display = ''; a.style.visibility = ''; } catch (e) { }
+                  try { if (a.style.transform && a.style.transform.indexOf('translateZ(0.0001px)') >= 0) { a.style.transform = ''; } } catch (e) { }
+                  var node = a.parentElement;
+                  var hops = 0;
+                  while (node && node !== document.body && hops < 8) {
+                    try {
+                      if (node.style && node.style.display === 'none') { node.style.setProperty('display', '', 'important'); }
+                    } catch (e) { }
+                    node = node.parentElement;
+                    hops++;
+                  }
                   return 'ок';
                 } catch (e) { return 'сбой'; }
               };
@@ -1215,7 +1203,8 @@ object PlayerSession {
                   var playing = false;
                   var t = 0;
                   var d = 0;
-                  try { if (p && typeof p.getPlayerState === 'function') { var s = p.getPlayerState(); playing = (s === 1 || s === 3); } } catch (e) { }
+                  try { if (v && typeof v.paused === 'boolean') { playing = !v.paused; } } catch (e) { }
+                  try { if (!playing && p && typeof p.getPlayerState === 'function') { var s = p.getPlayerState(); playing = (s === 1 || s === 3); } } catch (e) { }
                   try { if (p && typeof p.getCurrentTime === 'function') { t = p.getCurrentTime() || 0; } } catch (e) { }
                   try { if (p && typeof p.getDuration === 'function') { d = p.getDuration() || 0; } } catch (e) { }
                   if (!t && v) { try { t = v.currentTime || 0; } catch (e) { } }
@@ -1599,18 +1588,35 @@ object PlayerSession {
                 }
                 videoWatch();
                 try {
-                  // Сторож показа: если активное играющее видео оказалось скрытым (наша встряска
-                  // застряла или страница спрятала слой) — возвращаем показ, это и есть чёрный экран.
+                  // Сторож показа: если активное играющее видео (или его контейнеры) оказалось скрыто —
+                  // возвращаем показ, это и есть чёрный экран.
                   if (window.__oberegPipMode !== true) {
                     var av = (window.__oberegVideo ? window.__oberegVideo() : null);
                     if (av && (!av.paused || (av.currentTime || 0) > 1)) {
+                      var shown = false;
                       var acs = getComputedStyle(av);
                       if (acs.display === 'none' || acs.visibility === 'hidden') {
                         av.style.display = '';
                         av.style.visibility = '';
                         if (av.style.transform && av.style.transform.indexOf('translateZ(0.0001px)') >= 0) { av.style.transform = ''; }
+                        shown = true;
+                      }
+                      var node = av.parentElement;
+                      var hops = 0;
+                      while (node && node !== document.body && hops < 6) {
+                        try {
+                          var ncs = getComputedStyle(node);
+                          if (ncs.display === 'none') {
+                            node.style.setProperty('display', '', 'important');
+                            shown = true;
+                          }
+                        } catch (e) { }
+                        node = node.parentElement;
+                        hops++;
+                      }
+                      if (shown) {
                         var h4 = host();
-                        if (h4 && h4.note) { h4.note('видео было скрыто — вернул показ'); }
+                        if (h4 && h4.note) { h4.note('видеослой был скрыт — вернул показ'); }
                       }
                     }
                   }
