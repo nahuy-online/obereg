@@ -835,6 +835,7 @@ object PlayerSession {
               try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
               try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
             }
+            try { if (typeof window.__oberegUnforce === 'function') { window.__oberegUnforce(); } } catch (e) { }
             try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
             try { if (typeof window.__oberegReflowRescue === 'function') { window.__oberegReflowRescue('пробуждение'); } } catch (e) { }
             return 'ok';
@@ -1116,14 +1117,17 @@ object PlayerSession {
                 } catch (e) { return 'сбой'; }
               };
             }
-            // Ручное «оживление» из меню плеера: снять скрытие с активного видео и его контейнеров.
+            // Ручное «оживление» из меню плеера: снять скрытие, вернуть размер, слегка сдвинуть время.
             if (!window.__oberegRevive) {
               window.__oberegRevive = function () {
                 try {
                   var a = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (!a) { return 'нет видео'; }
-                  try { a.style.display = ''; a.style.visibility = ''; } catch (e) { }
+                  try { a.style.display = 'block'; a.style.visibility = ''; } catch (e) { }
                   try { if (a.style.transform && a.style.transform.indexOf('translateZ(0.0001px)') >= 0) { a.style.transform = ''; } } catch (e) { }
+                  var r = a.getBoundingClientRect();
+                  if (r.height < 40 && a.__oberegGoodH >= 40) { a.style.setProperty('height', a.__oberegGoodH + 'px', 'important'); }
+                  if (r.width < 40) { a.style.setProperty('width', (a.__oberegGoodW >= 100 ? a.__oberegGoodW + 'px' : '100%'), 'important'); }
                   var node = a.parentElement;
                   var hops = 0;
                   while (node && node !== document.body && hops < 8) {
@@ -1133,8 +1137,28 @@ object PlayerSession {
                     node = node.parentElement;
                     hops++;
                   }
+                  try { a.currentTime = (a.currentTime || 0) + 0.2; } catch (e) { }
                   return 'ок';
                 } catch (e) { return 'сбой'; }
+              };
+            }
+            // Снять наши вынужденные размеры (вызывается при переездах: проверка заново).
+            if (!window.__oberegUnforce) {
+              window.__oberegUnforce = function () {
+                try {
+                  var list = document.querySelectorAll('video');
+                  for (var i = 0; i < list.length; i++) {
+                    var v = list[i];
+                    if (v && v.__oberegForced) {
+                      try {
+                        v.style.removeProperty('height');
+                        v.style.removeProperty('width');
+                        v.style.removeProperty('display');
+                      } catch (e) { }
+                      v.__oberegForced = false;
+                    }
+                  }
+                } catch (e) { }
               };
             }
             // Спасение вёрстки: если после переездов ролик «уехал» в середину страницы —
@@ -1588,8 +1612,8 @@ object PlayerSession {
                 }
                 videoWatch();
                 try {
-                  // Сторож показа: если активное играющее видео (или его контейнеры) оказалось скрыто —
-                  // возвращаем показ, это и есть чёрный экран.
+                  // Сторож показа и размера: если активное играющее видео (или его контейнеры) скрыто
+                  // либо слой «сплющился» (высота/ширина в ноль — звук идёт, картинки нет) — лечим.
                   if (window.__oberegPipMode !== true) {
                     var av = (window.__oberegVideo ? window.__oberegVideo() : null);
                     if (av && (!av.paused || (av.currentTime || 0) > 1)) {
@@ -1614,9 +1638,34 @@ object PlayerSession {
                         node = node.parentElement;
                         hops++;
                       }
+                      var ar = av.getBoundingClientRect();
+                      if (ar.width >= 100 && ar.height >= 40) {
+                        av.__oberegGoodW = Math.round(ar.width);
+                        av.__oberegGoodH = Math.round(ar.height);
+                      } else if (av.__oberegGoodW || av.__oberegGoodH || true) {
+                        var targetH = av.__oberegGoodH || 0;
+                        if (targetH < 40) {
+                          var nd = av.parentElement;
+                          var hh = 0;
+                          while (nd && nd !== document.body && hh < 8) {
+                            var nr = nd.getBoundingClientRect();
+                            if (nr.height >= 100 && nr.height <= 900) { targetH = Math.round(nr.height); break; }
+                            nd = nd.parentElement;
+                            hh++;
+                          }
+                        }
+                        var sized = false;
+                        if (ar.height < 40 && targetH >= 40) { av.style.setProperty('height', targetH + 'px', 'important'); sized = true; }
+                        if (ar.width < 40) { av.style.setProperty('width', (av.__oberegGoodW >= 100 ? av.__oberegGoodW + 'px' : '100%'), 'important'); sized = true; }
+                        if (sized) {
+                          av.style.setProperty('display', 'block', 'important');
+                          av.__oberegForced = true;
+                          shown = true;
+                        }
+                      }
                       if (shown) {
                         var h4 = host();
-                        if (h4 && h4.note) { h4.note('видеослой был скрыт — вернул показ'); }
+                        if (h4 && h4.note) { h4.note('видеослой был скрыт/сплющен — вернул показ (' + Math.round(ar.width) + 'x' + Math.round(ar.height) + ')'); }
                       }
                     }
                   }
