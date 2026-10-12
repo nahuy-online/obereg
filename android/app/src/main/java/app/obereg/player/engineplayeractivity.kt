@@ -215,7 +215,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
     private fun showSettings() {
         val rates = listOf(1.0, 1.25, 1.5, 2.0, 2.5, 3.0)
         val labels = rates.map { "Скорость: " + speedLabel(it) }
-        val entries = labels + listOf("Прямой поток", "Оживить видео (если чёрный экран)", "Вытащить ролик заново (с этого места)", "Перезагрузить страницу")
+        val entries = labels + listOf("Прямой поток", "Оживить видео (если чёрный экран)", "Обновить страницу (с этого места)", "Перезагрузить страницу")
         AlertDialog.Builder(this)
             .setTitle("Плеер")
             .setItems(entries.toTypedArray()) { _, which ->
@@ -241,8 +241,8 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
                         statusView.text = "движок-плеер: оживляю видео"
                     }
                     which == rates.size + 2 -> {
-                        PlayerSession.rebuildFromPosition()
-                        statusView.text = "движок-плеер: пересобираю ролик заново"
+                        PlayerSession.reloadFromPosition()
+                        statusView.text = "движок-плеер: обновляю страницу с места"
                     }
                     else -> {
                         PlayerSession.reload()

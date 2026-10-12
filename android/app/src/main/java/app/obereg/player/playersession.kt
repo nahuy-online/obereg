@@ -363,6 +363,20 @@ object PlayerSession {
 
     fun reload() { web?.reload() }
 
+    /** Обновить страницу с текущего места — проверенный способ вернуть видеопоток. */
+    fun reloadFromPosition() {
+        val id = PlaybackCodec.sanitizeVideoId(videoId)
+        if (id.isBlank() || videoId.startsWith("http")) {
+            DiagLog.add("движок-плеер: обновление с места недоступно")
+            return
+        }
+        val sec = (lastPositionMs / 1000).coerceAtLeast(0L)
+        DiagLog.add("движок-плеер: обновляю страницу с места ${sec}с")
+        wantPlay = true
+        lastPlaying = null
+        web?.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru&t=${sec}s")
+    }
+
     /** Ручное «оживление» видео (кнопка в меню плеера): пересобрать слой, сдвинуть время. */
     fun reviveVideo() {
         DiagLog.add("движок-плеер: оживляю видео вручную")
@@ -579,6 +593,15 @@ object PlayerSession {
             Handler(Looper.getMainLooper()).post {
                 wantPlay = false
                 DiagLog.add("движок-плеер: пауза по кнопке сервиса — уважаю")
+            }
+        }
+
+        /** Аудит экрана по кнопке «Оживить»: что за медиа, что сверху, что показывает плеер. */
+        @android.webkit.JavascriptInterface
+        fun audit(text: String) {
+            val trimmed = text.take(1100)
+            Handler(Looper.getMainLooper()).post {
+                DiagLog.add("движок-плеер: аудит — $trimmed")
             }
         }
     }
@@ -1184,6 +1207,69 @@ object PlayerSession {
                     hops++;
                   }
                   try { a.currentTime = (a.currentTime || 0) + 0.2; } catch (e) { }
+                  // Настоящий цикл пауза/игра: заставляет медиа-конвейер заново вывести картинку.
+                  try {
+                    window.__oberegAllowPause = true;
+                    a.pause();
+                    setTimeout(function () {
+                      try { window.__oberegAllowPause = false; } catch (e) { }
+                      try { var pr2 = a.play(); if (pr2 && pr2.catch) { pr2.catch(function () { }); } } catch (e) { }
+                    }, 180);
+                  } catch (e) { }
+                  // Заодно — аудит экрана в журнал (что за медиа, что сверху, что говорит плеер).
+                  try { var hh = window.__oberegHost; if (hh && hh.audit) { hh.audit(window.__oberegAudit()); } } catch (e) { }
+                  return 'ок';
+                } catch (e) { return 'сбой'; }
+              };
+            }
+            // Аудит экрана: все медиа-элементы, что лежит поверх плеера, состояние плеера.
+            if (!window.__oberegAudit) {
+              window.__oberegAudit = function () {
+                try {
+                  var parts = [];
+                  var media = document.querySelectorAll('video,audio');
+                  parts.push('медиа:' + media.length);
+                  for (var i = 0; i < media.length && i < 3; i++) {
+                    var m = media[i];
+                    if (!m) { continue; }
+                    var r = {};
+                    try { r = m.getBoundingClientRect(); } catch (e) { }
+                    var fr = -1;
+                    try { if (typeof m.getVideoPlaybackQuality === 'function') { fr = m.getVideoPlaybackQuality().totalVideoFrames; } } catch (e) { }
+                    parts.push('[' + i + ':' + m.tagName + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '@' + Math.round(r.top) + ' rs' + (m.readyState || 0) + (m.paused ? 'п' : 'и') + ' f' + fr + ' vw' + (m.videoWidth || 0) + 'x' + (m.videoHeight || 0) + (m.muted ? ' мут' : '') + ']');
+                  }
+                  var p = document.getElementById('movie_player');
+                  var st = -9;
+                  try { if (p && typeof p.getPlayerState === 'function') { st = p.getPlayerState(); } } catch (e) { }
+                  parts.push('плеер:' + st);
+                  var av = (window.__oberegVideo ? window.__oberegVideo() : null);
+                  if (av) {
+                    try {
+                      var ar = av.getBoundingClientRect();
+                      var cx = Math.round(ar.left + ar.width / 2);
+                      var cy = Math.round(ar.top + ar.height / 2);
+                      var t1 = document.elementFromPoint(cx, cy);
+                      var t2 = document.elementFromPoint(cx, Math.max(0, Math.round(ar.top + ar.height * 0.25)));
+                      parts.push('центр:' + (t1 ? (t1.tagName + '.' + String(t1.className || '').slice(0, 36)) : '?') + '|верх:' + (t2 ? (t2.tagName + '.' + String(t2.className || '').slice(0, 36)) : '?'));
+                      var acs = getComputedStyle(av);
+                      parts.push('вид:' + acs.display + '/' + acs.visibility + '/op' + (acs.opacity || '?') + ' pos:' + (acs.position || '?'));
+                    } catch (e) { }
+                  }
+                  return parts.join(' ; ');
+                } catch (e) { return 'сбой аудита'; }
+              };
+            }
+            // Перезагрузка страницы с текущего места — проверенный способ вернуть видеопоток.
+            if (!window.__oberegReloadFromPosition) {
+              window.__oberegReloadFromPosition = function (reason) {
+                try {
+                  var id = window.__oberegVideoId || '';
+                  if (!id) { return 'нет id'; }
+                  var av2 = (window.__oberegVideo ? window.__oberegVideo() : null);
+                  var sec2 = 0;
+                  if (av2) { sec2 = Math.max(0, Math.round(av2.currentTime || 0)); }
+                  try { var h2 = window.__oberegHost; if (h2 && h2.note) { h2.note('видео не выводится на экран — обновляю страницу с места ' + sec2 + 'с'); } } catch (e) { }
+                  location.href = 'https://www.youtube.com/watch?v=' + id + '&hl=ru&t=' + sec2 + 's';
                   return 'ок';
                 } catch (e) { return 'сбой'; }
               };
@@ -1593,6 +1679,72 @@ object PlayerSession {
             var videoRescueCount = 0;
             var videoRescueAt = 0;
             var videoRescueCooldownUntil = 0;
+            // Сторож «показа»: кадры декодируются, но на экран не выводятся (чёрный экран со звуком).
+            var presEl = null;
+            var presAt = 0;
+            var presBindAt = 0;
+            var presCount = 0;
+            var presFramesAt = -1;
+            var presDisabled = false;
+            var presHealAt = 0;
+            var presReloadAt = 0;
+            function bindPresentation() {
+              try {
+                if (presDisabled) { return; }
+                var v = (window.__oberegVideo ? window.__oberegVideo() : null);
+                if (!v || typeof v.requestVideoFrameCallback !== 'function') { return; }
+                if (v === presEl) { return; }
+                presEl = v;
+                presAt = Date.now();
+                presBindAt = Date.now();
+                presCount = 0;
+                presFramesAt = -1;
+                var loop = function (now, meta) {
+                  try {
+                    if (window.__oberegVideo && window.__oberegVideo() !== presEl) { presEl = null; return; }
+                    presAt = Date.now();
+                    presCount++;
+                  } catch (e) { }
+                  try { if (presEl && presEl.requestVideoFrameCallback) { presEl.requestVideoFrameCallback(loop); } } catch (e) { }
+                };
+                try { v.requestVideoFrameCallback(loop); } catch (e) { }
+              } catch (e) { }
+            }
+            function watchPresentation() {
+              try {
+                if (presDisabled) { return; }
+                bindPresentation();
+                if (!presEl) { return; }
+                var v = presEl;
+                if (!v || v.paused || window.__oberegPipMode === true) { presAt = Date.now(); return; }
+                // Совсем нет обратных вызовов о показе — значит, среда не поддерживает проверку: отключаемся.
+                if (presCount === 0 && Date.now() - presBindAt > 12000) { presDisabled = true; return; }
+                if (Date.now() - presAt < 6000) { return; }
+                // Кадры декодируются? Если тоже стоят — это буферизация, не наш случай.
+                var q = null;
+                try { q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null; } catch (e) { }
+                var dec = q ? q.totalVideoFrames : -1;
+                if (dec >= 0 && dec <= presFramesAt) { presAt = Date.now(); return; }
+                presFramesAt = dec;
+                if (Date.now() - presHealAt > 15000) {
+                  presHealAt = Date.now();
+                  try { var h = host(); if (h && h.note) { h.note('кадры идут, но не показываются — переигрываю видео'); } } catch (e) { }
+                  try {
+                    window.__oberegAllowPause = true;
+                    v.pause();
+                    setTimeout(function () {
+                      try { window.__oberegAllowPause = false; } catch (e) { }
+                      try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function () { }); } } catch (e) { }
+                    }, 180);
+                  } catch (e) { }
+                  return;
+                }
+                if (Date.now() - presHealAt > 40000 && Date.now() - presReloadAt > 120000) {
+                  presReloadAt = Date.now();
+                  if (typeof window.__oberegReloadFromPosition === 'function') { window.__oberegReloadFromPosition('авто'); }
+                }
+              } catch (e) { }
+            }
             function videoWatch() {
               try {
                 var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
@@ -1670,6 +1822,7 @@ object PlayerSession {
                   } catch (e) { }
                 }
                 videoWatch();
+                watchPresentation();
                 try {
                   // Сторож показа и размера: если активное играющее видео (или его контейнеры) скрыто
                   // либо слой «сплющился» (высота/ширина в ноль — звук идёт, картинки нет) — лечим.
