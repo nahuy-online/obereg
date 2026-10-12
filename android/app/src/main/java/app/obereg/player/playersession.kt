@@ -78,6 +78,9 @@ object PlayerSession {
     /** Когда последний раз возвращали поток перезагрузкой с места (общая защита от циклов). */
     private var lastRecoveryAtMs = 0L
 
+    /** Проверка кадра уже идёт — второй параллельной быть не должно. */
+    private var recoveryChecking = false
+
     /** «Пульс»: двигалась ли позиция ролика в последние секунды — признак живого воспроизведения. */
     private var lastPulsePosMs = 0L
     private var lastPulseMoveAt = 0L
@@ -369,16 +372,26 @@ object PlayerSession {
      */
     fun recoverIfBlack(activity: Activity, reason: String, reloadOnUnknown: Boolean) {
         if (!active || videoId.isBlank() || pipActive) { return }
+        if (recoveryChecking) { return }
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastRecoveryAtMs < 20000) { return }
         if (!positionAlive()) { return }
-        checkScreenBlack(activity) { black ->
-            if (black == true || (black == null && reloadOnUnknown)) {
-                lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
-                web?.evaluateJavascript(
-                    "(function(){ try { var h = window.__oberegHost; if (h && h.note) { h.note('$reason — кадра нет — обновляю поток с места'); } } catch (e) { } return 'ok'; })()",
-                ) { _ -> }
-                reloadFromPosition()
+        // Сначала убеждаемся, что ролик уже «прогрет» (есть данные и кадры):
+        // иначе первые секунды загрузки (чёрный кадр при rs0) выглядели бы как сбой.
+        web?.evaluateJavascript(JS_WARM) { raw ->
+            if (PlayerApi.decodeJsString(raw) != "1") { return@evaluateJavascript }
+            recoveryChecking = true
+            checkScreenBlack(activity) { black ->
+                recoveryChecking = false
+                if (black == true || (black == null && reloadOnUnknown)) {
+                    val now2 = android.os.SystemClock.elapsedRealtime()
+                    if (now2 - lastRecoveryAtMs < 20000) { return@checkScreenBlack }
+                    lastRecoveryAtMs = now2
+                    web?.evaluateJavascript(
+                        "(function(){ try { var h = window.__oberegHost; if (h && h.note) { h.note('$reason — кадра нет — обновляю поток с места'); } } catch (e) { } return 'ok'; })()",
+                    ) { _ -> }
+                    reloadFromPosition()
+                }
             }
         }
     }
@@ -1034,6 +1047,21 @@ object PlayerSession {
     /** Ручное «оживление» видео из меню плеера (для чёрного экрана). */
     private val JS_REVIVE = """
         (function(){ try { return (window.__oberegRevive ? window.__oberegRevive() : 'нет'); } catch (e) { return 'сбой'; } })()
+    """.trimIndent()
+
+    /** «Прогрето» ли видео: есть данные и уже декодированные кадры, не на паузе. */
+    private val JS_WARM = """
+        (function(){
+          try {
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+            if (!v || v.paused) { return '0'; }
+            if ((v.readyState || 0) < 2) { return '0'; }
+            var fr = -1;
+            try { if (typeof v.getVideoPlaybackQuality === 'function') { fr = v.getVideoPlaybackQuality().totalVideoFrames; } } catch (e) { }
+            if (fr === 0) { return '0'; }
+            return '1';
+          } catch (e) { return '0'; }
+        })()
     """.trimIndent()
 
     /** Есть ли картинка: спрашиваем страж показа. '1' — есть, 'п' — пауза, '0' — нет, 'н' — нет видео. */
