@@ -613,7 +613,11 @@ object PlayerSession {
         lastPlaying = null
         pageLoadedAtMs = 0L
         lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
-        web?.loadUrl(url)
+        // Согласуем защиты: страничные сторожа не должны перезагружать повторно после нашего лечения.
+        web?.evaluateJavascript(
+            "(function(){ try { sessionStorage.setItem('oberegAutoReloadAt', String(Date.now())); } catch (e) { } return 'ok'; })()",
+        ) { _ -> }
+        Handler(Looper.getMainLooper()).postDelayed({ web?.loadUrl(url) }, 60)
     }
 
     /** Ручное «оживление» видео (кнопка в меню): встряхнуть и проверить кадр по-настоящему; чёрный — обновляем с места. */
@@ -1734,6 +1738,7 @@ object PlayerSession {
             if (window.__oberegTuned) { return 'уже'; }
             window.__oberegTuned = true;
             window.__oberegRate = __RATE__;
+            window.__oberegLoadedAt = Date.now();
             function host() { return window.__oberegHost || null; }
             function ensureStyle() {
               if (document.getElementById('oberegStyle')) { return; }
@@ -2047,6 +2052,8 @@ object PlayerSession {
               try {
                 var v = (window.__oberegVideo ? window.__oberegVideo() : null);
                 if (!v || window.__oberegPipMode === true || window.__oberegAppForeground === false) { stuckSince = 0; return; }
+                // Первые 20 секунд после загрузки страницы — не сбой, а сеть/буферизация.
+                if (Date.now() - (window.__oberegLoadedAt || 0) < 20000) { stuckSince = 0; return; }
                 if (window.__oberegWantPlay === false) { stuckSince = 0; return; }
                 var ct = 0;
                 try { ct = v.currentTime || 0; } catch (e) { }
@@ -2089,6 +2096,8 @@ object PlayerSession {
                 var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                 var h = host();
                 if (!v || v.paused || v.currentTime < 0.5 || window.__oberegPipMode === true) { videoFramesLast = -1; videoStallSince = 0; return; }
+                // Первые 12 секунд после загрузки страницы — это ещё загрузка, а не стояние потока.
+                if (Date.now() - (window.__oberegLoadedAt || 0) < 12000) { videoFramesLast = -1; videoStallSince = 0; return; }
                 if (Date.now() < videoRescueCooldownUntil) { return; }
                 var frames = -1;
                 try {
