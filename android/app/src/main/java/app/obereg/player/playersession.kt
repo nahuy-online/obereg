@@ -372,6 +372,7 @@ object PlayerSession {
         }
         val sec = (lastPositionMs / 1000).coerceAtLeast(0L)
         DiagLog.add("движок-плеер: обновляю страницу с места ${sec}с")
+        DiagLog.add("движок-плеер: аудио — " + audioAudit())
         wantPlay = true
         lastPlaying = null
         web?.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru&t=${sec}s")
@@ -380,8 +381,41 @@ object PlayerSession {
     /** Ручное «оживление» видео (кнопка в меню плеера): пересобрать слой, сдвинуть время. */
     fun reviveVideo() {
         DiagLog.add("движок-плеер: оживляю видео вручную")
-        web?.evaluateJavascript(JS_REVIVE) { _ -> }
+        DiagLog.add("движок-плеер: аудио — " + audioAudit())
+        web?.evaluateJavascript(JS_REVIVE) { raw ->
+            val answer = PlayerApi.decodeJsString(raw).orEmpty()
+            if (answer.startsWith("1")) {
+                DiagLog.add("движок-плеер: слой стоит без данных — сразу обновляю страницу с места")
+                Handler(Looper.getMainLooper()).postDelayed({
+                    reloadFromPosition()
+                }, 400)
+            }
+        }
     }
+
+    /** Кто сейчас «играет» на телефоне: наш процесс или чужой (для звука без картинки). */
+    private fun audioAudit(): String = runCatching {
+        val am = appContext?.getSystemService(android.media.AudioManager::class.java)
+        val music = am?.isMusicActive == true
+        val list = am?.activePlaybackConfigurations ?: emptyList()
+        val myUid = android.os.Process.myUid()
+        var mine = 0
+        var others = 0
+        var unknown = 0
+        for (cfg in list) {
+            val uid = runCatching {
+                val method = cfg.javaClass.getMethod("getClientUid")
+                (method.invoke(cfg) as? Int) ?: -2
+            }.getOrElse { -2 }
+            when {
+                uid == myUid -> mine++
+                uid == -2 -> unknown++
+                else -> others++
+            }
+        }
+        "музыка:${if (music) 1 else 0} игроков:${list.size} наших:$mine чужих:$others" +
+            (if (unknown > 0) " н/д:$unknown" else "")
+    }.getOrElse { "аудио-аудит недоступен" }
 
     /** Пересобрать плеер с текущего места: свежий WebView — свежий видеослой. */
     fun rebuildFromPosition() {
@@ -1180,6 +1214,8 @@ object PlayerSession {
                 try {
                   var a = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (!a) { return 'нет видео'; }
+                  var wantA = (window.__oberegWantPlay !== false);
+                  var wasBadA = (wantA && (a.paused || (a.readyState || 0) <= 1)) ? '1' : '0';
                   try {
                     var s = a.__oberegStyleSaved;
                     if (s) {
@@ -1218,7 +1254,7 @@ object PlayerSession {
                   } catch (e) { }
                   // Заодно — аудит экрана в журнал (что за медиа, что сверху, что говорит плеер).
                   try { var hh = window.__oberegHost; if (hh && hh.audit) { hh.audit(window.__oberegAudit()); } } catch (e) { }
-                  return 'ок';
+                  return wasBadA + ' ' + (a.paused ? 'п' : 'и') + ' rs' + (a.readyState || 0);
                 } catch (e) { return 'сбой'; }
               };
             }
@@ -1710,6 +1746,27 @@ object PlayerSession {
                 try { v.requestVideoFrameCallback(loop); } catch (e) { }
               } catch (e) { }
             }
+            var stuckSince = 0;
+            var stuckReloadAt = 0;
+            function watchStuck() {
+              try {
+                var v = (window.__oberegVideo ? window.__oberegVideo() : null);
+                if (!v || window.__oberegPipMode === true) { stuckSince = 0; return; }
+                if (window.__oberegWantPlay === false) { stuckSince = 0; return; }
+                var ct = 0;
+                try { ct = v.currentTime || 0; } catch (e) { }
+                if (ct < 3) { stuckSince = 0; return; }
+                var bad = false;
+                try { bad = (v.paused || (v.readyState || 0) <= 1); } catch (e) { }
+                if (!bad) { stuckSince = 0; return; }
+                if (!stuckSince) { stuckSince = Date.now(); return; }
+                if (Date.now() - stuckSince < 9000) { return; }
+                if (Date.now() - stuckReloadAt < 90000) { return; }
+                stuckReloadAt = Date.now();
+                try { var hs = host(); if (hs && hs.note) { hs.note('ролик стоит без данных (' + (v.paused ? 'пауза' : 'загрузка') + ', rs' + (v.readyState || 0) + ') — обновляю с места ' + Math.round(ct) + 'с'); } } catch (e) { }
+                if (typeof window.__oberegReloadFromPosition === 'function') { window.__oberegReloadFromPosition('авто-стояние'); }
+              } catch (e) { }
+            }
             function watchPresentation() {
               try {
                 if (presDisabled) { return; }
@@ -1823,6 +1880,7 @@ object PlayerSession {
                 }
                 videoWatch();
                 watchPresentation();
+                watchStuck();
                 try {
                   // Сторож показа и размера: если активное играющее видео (или его контейнеры) скрыто
                   // либо слой «сплющился» (высота/ширина в ноль — звук идёт, картинки нет) — лечим.

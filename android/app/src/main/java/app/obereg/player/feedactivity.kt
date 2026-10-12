@@ -57,6 +57,32 @@ class FeedActivity : AppCompatActivity() {
     /** Оболочка следит, когда ролик закрыт (например, кнопкой в медиа-уведомлении). */
     private val releaseWatcher: () -> Unit = { runOnUiThread { updateMini() } }
 
+    /** Сторож ленты: если на скрытой странице что-то играет — глушим и пишем в журнал. */
+    private val strayHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastStrayLogAt = 0L
+    private val strayWatch = object : Runnable {
+        override fun run() {
+            runCatching {
+                webView.evaluateJavascript(
+                    "(function(){try{var m=document.querySelectorAll('video,audio');var act=0;var info='';" +
+                        "for(var i=0;i<m.length&&i<2;i++){var x=m[i];if(!x.paused&&(x.currentTime||0)>0.5){act++;try{x.pause();}catch(e){}}info+='['+i+':'+x.tagName+(x.paused?'п':'и')+' rs'+x.readyState+']';}" +
+                        "return m.length+'/'+act+' '+info+' '+String(location.href).slice(0,64);}catch(e){return 'сбой';}})()",
+                ) { raw ->
+                    val answer = PlayerApi.decodeJsString(raw).orEmpty()
+                    val act = answer.substringAfter('/', "0/").substringBefore(' ').toIntOrNull() ?: 0
+                    if (act > 0) {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastStrayLogAt > 30_000) {
+                            lastStrayLogAt = now
+                            DiagLog.add("лента: остановил чужие медиа: $answer")
+                        }
+                    }
+                }
+            }
+            strayHandler.postDelayed(this, 8_000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_feed)
@@ -78,6 +104,7 @@ class FeedActivity : AppCompatActivity() {
             updateMini()
         }
         PlayerSession.onReleased = releaseWatcher
+        strayHandler.postDelayed(strayWatch, 9_000)
         miniBar.setOnClickListener {
             if (PlayerSession.active) {
                 PlayerSession.markExpand()
@@ -153,6 +180,7 @@ class FeedActivity : AppCompatActivity() {
         if (PlayerSession.onReleased === releaseWatcher) {
             PlayerSession.onReleased = null
         }
+        strayHandler.removeCallbacks(strayWatch)
         webView.destroy()
         super.onDestroy()
     }
