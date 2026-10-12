@@ -161,6 +161,7 @@ class FeedActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        PlayerSession.setAppForeground(true)
         if (tab == TAB_LIB) {
             findViewById<Button>(R.id.btnLibLogin).text =
                 if (loggedIn()) "Вход выполнен ✓" else "Войти в аккаунт"
@@ -170,6 +171,7 @@ class FeedActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        PlayerSession.setAppForeground(false)
         // Мини-плеер продолжает играть, когда приложение уходит в фон.
         if (PlayerSession.active) {
             PlayerSession.keepAlive()

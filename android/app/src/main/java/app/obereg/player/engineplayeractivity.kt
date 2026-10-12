@@ -72,6 +72,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
     override fun onResume() {
         super.onResume()
         PlayerSession.host = this
+        PlayerSession.setAppForeground(true)
         if (!PlayerSession.pipActive) {
             PlayerSession.attachTo(holder)
             // Страховка: если вышли из окна без события, вернём обычную вёрстку страницы.
@@ -90,6 +91,7 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
 
     override fun onPause() {
         super.onPause()
+        PlayerSession.setAppForeground(false)
         // Экран уходит в окно или приложение сворачивается — не даём странице заснуть:
         // так ролик играет в «окне» и в фоне, и кнопки play/pause снова работают.
         PlayerSession.keepAlive()

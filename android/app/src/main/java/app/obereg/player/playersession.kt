@@ -207,6 +207,17 @@ object PlayerSession {
         runCatching { view.invalidate() }
     }
 
+    /**
+     * Сообщить странице, видно ли приложение: в фоне проверку показа не гоняем
+     * (экран выключен — кадры не выводятся, но звук играет — это не чёрный экран).
+     */
+    fun setAppForeground(on: Boolean) {
+        val flag = if (on) "true" else "false"
+        web?.evaluateJavascript(
+            "(function(){ try { window.__oberegAppForeground = $flag; return 'ok'; } catch (e) { return 'сбой'; } })()",
+        ) { _ -> }
+    }
+
     /** Открыть ролик: если это тот же ролик — просто продолжаем, если новый — грузим. */
     fun open(context: Context, id: String, videoTitle: String) {
         val view = ensure(context)
@@ -378,19 +389,24 @@ object PlayerSession {
         web?.loadUrl("https://www.youtube.com/watch?v=$id&hl=ru&t=${sec}s")
     }
 
-    /** Ручное «оживление» видео (кнопка в меню плеера): пересобрать слой, сдвинуть время. */
+    /** Ручное «оживление» видео (кнопка в меню плеера): вернуть стили и встряхнуть; если картинка не вернулась — обновить с места. */
     fun reviveVideo() {
         DiagLog.add("движок-плеер: оживляю видео вручную")
         DiagLog.add("движок-плеер: аудио — " + audioAudit())
-        web?.evaluateJavascript(JS_REVIVE) { raw ->
-            val answer = PlayerApi.decodeJsString(raw).orEmpty()
-            if (answer.startsWith("1")) {
-                DiagLog.add("движок-плеер: слой стоит без данных — сразу обновляю страницу с места")
-                Handler(Looper.getMainLooper()).postDelayed({
-                    reloadFromPosition()
-                }, 400)
+        web?.evaluateJavascript(JS_REVIVE) { _ -> }
+        Handler(Looper.getMainLooper()).postDelayed({
+            web?.evaluateJavascript(JS_PRESENTED) { raw ->
+                when (PlayerApi.decodeJsString(raw).orEmpty()) {
+                    "1" -> DiagLog.add("движок-плеер: оживление — картинка на месте")
+                    "п" -> DiagLog.add("движок-плеер: оживление — ролик на паузе")
+                    "н" -> DiagLog.add("движок-плеер: оживление — видео не найдено")
+                    else -> {
+                        DiagLog.add("движок-плеер: оживление не помогло — обновляю страницу с места")
+                        reloadFromPosition()
+                    }
+                }
             }
-        }
+        }, 1800)
     }
 
     /** Кто сейчас «играет» на телефоне: наш процесс или чужой (для звука без картинки). */
@@ -881,6 +897,19 @@ object PlayerSession {
         (function(){ try { return (window.__oberegRevive ? window.__oberegRevive() : 'нет'); } catch (e) { return 'сбой'; } })()
     """.trimIndent()
 
+    /** Есть ли картинка: спрашиваем страж показа. '1' — есть, 'п' — пауза, '0' — нет, 'н' — нет видео. */
+    private val JS_PRESENTED = """
+        (function(){
+          try {
+            var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+            if (!v) { return 'н'; }
+            if (v.paused) { return 'п'; }
+            if (typeof window.__oberegPresented === 'function') { return window.__oberegPresented() ? '1' : '0'; }
+            return '0';
+          } catch (e) { return '0'; }
+        })()
+    """.trimIndent()
+
     /** Разбудить страницу после переезда: продолжить, если нужно, и починить картинку/вёрстку. */
     private val JS_WAKE = """
         (function(){
@@ -1077,6 +1106,7 @@ object PlayerSession {
             if (!window.__oberegPauseGuard) {
               window.__oberegPauseGuard = true;
               if (typeof window.__oberegWantPlay !== 'boolean') { window.__oberegWantPlay = true; }
+              if (typeof window.__oberegAppForeground !== 'boolean') { window.__oberegAppForeground = true; }
               window.__oberegAllowPause = false;
               window.__oberegPauseBlocks = 0;
               window.__oberegLastGesture = 0;
@@ -1722,8 +1752,20 @@ object PlayerSession {
             var presCount = 0;
             var presFramesAt = -1;
             var presDisabled = false;
-            var presHealAt = 0;
-            var presReloadAt = 0;
+            function autoReload(noteText, reason) {
+              try {
+                var last = 0;
+                var cnt = 0;
+                try { last = Number(sessionStorage.getItem('oberegAutoReloadAt') || 0); cnt = Number(sessionStorage.getItem('oberegAutoReloadCount') || 0); } catch (e) { }
+                if (Date.now() - last < 90000) { return false; }
+                if (cnt >= 12) { return false; }
+                try { sessionStorage.setItem('oberegAutoReloadAt', String(Date.now())); sessionStorage.setItem('oberegAutoReloadCount', String(cnt + 1)); } catch (e) { }
+                if (noteText) { try { var h = host(); if (h && h.note) { h.note(noteText); } } catch (e) { } }
+                if (typeof window.__oberegReloadFromPosition === 'function') { window.__oberegReloadFromPosition(reason || 'авто'); return true; }
+                return false;
+              } catch (e) { return false; }
+            }
+            window.__oberegPresented = function () { try { return (Date.now() - presAt) < 2500; } catch (e) { return true; } };
             function bindPresentation() {
               try {
                 if (presDisabled) { return; }
@@ -1747,11 +1789,10 @@ object PlayerSession {
               } catch (e) { }
             }
             var stuckSince = 0;
-            var stuckReloadAt = 0;
             function watchStuck() {
               try {
                 var v = (window.__oberegVideo ? window.__oberegVideo() : null);
-                if (!v || window.__oberegPipMode === true) { stuckSince = 0; return; }
+                if (!v || window.__oberegPipMode === true || window.__oberegAppForeground === false) { stuckSince = 0; return; }
                 if (window.__oberegWantPlay === false) { stuckSince = 0; return; }
                 var ct = 0;
                 try { ct = v.currentTime || 0; } catch (e) { }
@@ -1761,10 +1802,7 @@ object PlayerSession {
                 if (!bad) { stuckSince = 0; return; }
                 if (!stuckSince) { stuckSince = Date.now(); return; }
                 if (Date.now() - stuckSince < 9000) { return; }
-                if (Date.now() - stuckReloadAt < 90000) { return; }
-                stuckReloadAt = Date.now();
-                try { var hs = host(); if (hs && hs.note) { hs.note('ролик стоит без данных (' + (v.paused ? 'пауза' : 'загрузка') + ', rs' + (v.readyState || 0) + ') — обновляю с места ' + Math.round(ct) + 'с'); } } catch (e) { }
-                if (typeof window.__oberegReloadFromPosition === 'function') { window.__oberegReloadFromPosition('авто-стояние'); }
+                if (!autoReload('ролик стоит без данных (' + (v.paused ? 'пауза' : 'загрузка') + ', rs' + (v.readyState || 0) + ') — обновляю с места ' + Math.round(ct) + 'с', 'авто-стояние')) { stuckSince = Date.now(); return; }
               } catch (e) { }
             }
             function watchPresentation() {
@@ -1773,33 +1811,22 @@ object PlayerSession {
                 bindPresentation();
                 if (!presEl) { return; }
                 var v = presEl;
-                if (!v || v.paused || window.__oberegPipMode === true) { presAt = Date.now(); return; }
+                // В фоне показ не проверяем (звук без картинки там — норма); в «окне» — проверяем: оно видно.
+                if (!v || v.paused || (window.__oberegAppForeground === false && window.__oberegPipMode !== true)) {
+                  presAt = Date.now();
+                  return;
+                }
                 // Совсем нет обратных вызовов о показе — значит, среда не поддерживает проверку: отключаемся.
                 if (presCount === 0 && Date.now() - presBindAt > 12000) { presDisabled = true; return; }
-                if (Date.now() - presAt < 6000) { return; }
+                if (Date.now() - presAt < 3000) { return; }
                 // Кадры декодируются? Если тоже стоят — это буферизация, не наш случай.
                 var q = null;
                 try { q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null; } catch (e) { }
                 var dec = q ? q.totalVideoFrames : -1;
                 if (dec >= 0 && dec <= presFramesAt) { presAt = Date.now(); return; }
                 presFramesAt = dec;
-                if (Date.now() - presHealAt > 15000) {
-                  presHealAt = Date.now();
-                  try { var h = host(); if (h && h.note) { h.note('кадры идут, но не показываются — переигрываю видео'); } } catch (e) { }
-                  try {
-                    window.__oberegAllowPause = true;
-                    v.pause();
-                    setTimeout(function () {
-                      try { window.__oberegAllowPause = false; } catch (e) { }
-                      try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function () { }); } } catch (e) { }
-                    }, 180);
-                  } catch (e) { }
-                  return;
-                }
-                if (Date.now() - presHealAt > 40000 && Date.now() - presReloadAt > 120000) {
-                  presReloadAt = Date.now();
-                  if (typeof window.__oberegReloadFromPosition === 'function') { window.__oberegReloadFromPosition('авто'); }
-                }
+                // Кадры идут, а на экран не выводятся — сразу возвращаем поток обновлением с места.
+                if (!autoReload('кадры идут, но не показываются — обновляю с места (авто)', 'авто-кадры')) { presAt = Date.now(); }
               } catch (e) { }
             }
             function videoWatch() {
@@ -1839,9 +1866,8 @@ object PlayerSession {
                   return;
                 }
                 if (videoRescueCount === 3) {
-                  if (h && h.note) { h.note('видеопоток не ожил — перезагружаю страницу'); }
                   videoRescueCooldownUntil = Date.now() + 90000;
-                  try { location.reload(); } catch (e) { }
+                  autoReload('видеопоток не ожил — обновляю страницу с места', 'авто-поток');
                   return;
                 }
               } catch (e) { }
