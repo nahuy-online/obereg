@@ -81,6 +81,12 @@ object PlayerSession {
     /** Проверка кадра уже идёт — второй параллельной быть не должно. */
     private var recoveryChecking = false
 
+    /** Сколько раз «мягкое пробуждение» не помогло подряд (после двух — сразу перезагрузка). */
+    private var softHealFails = 0
+
+    /** Экран плеера (для проверки кадра) — пока он на виду. */
+    private var watchActivity: WeakReference<Activity>? = null
+
     /** «Пульс»: двигалась ли позиция ролика в последние секунды — признак живого воспроизведения. */
     private var lastPulsePosMs = 0L
     private var lastPulseMoveAt = 0L
@@ -387,13 +393,81 @@ object PlayerSession {
                     val now2 = android.os.SystemClock.elapsedRealtime()
                     if (now2 - lastRecoveryAtMs < 20000) { return@checkScreenBlack }
                     lastRecoveryAtMs = now2
-                    web?.evaluateJavascript(
-                        "(function(){ try { var h = window.__oberegHost; if (h && h.note) { h.note('$reason — кадра нет — обновляю поток с места'); } } catch (e) { } return 'ok'; })()",
-                    ) { _ -> }
-                    reloadFromPosition()
+                    healNow(activity, reason)
                 }
             }
         }
+    }
+
+    /** Заметка в журнал (и на стенд) со страницы. */
+    private fun noteJs(text: String) {
+        web?.evaluateJavascript(
+            "(function(){ try { var h = window.__oberegHost; if (h && h.note) { h.note('$text'); } } catch (e) { } return 'ok'; })()",
+        ) { _ -> }
+    }
+
+    /**
+     * Лечение кадра: сначала пробуем «мягко» — без перезагрузки;
+     * если мягкое пробуждение дважды подряд не помогло — возвращаем поток обновлением с места.
+     */
+    private fun healNow(activity: Activity, reason: String) {
+        if (softHealFails < 2) {
+            noteJs("$reason — кадра нет — пробую мягко оживить (без перезагрузки)")
+            softHeal(activity) { ok ->
+                if (ok) {
+                    softHealFails = 0
+                    noteJs("мягкое пробуждение вернуло картинку — без перезагрузки")
+                } else {
+                    softHealFails++
+                    noteJs("мягкое пробуждение не помогло — обновляю поток с места")
+                    reloadFromPosition()
+                }
+            }
+        } else {
+            noteJs("$reason — кадра нет — обновляю поток с места")
+            reloadFromPosition()
+        }
+    }
+
+    /** Мягкое пробуждение: пересобрать вывод кадров без перезагрузки страницы. */
+    private fun softHeal(activity: Activity, onDone: (Boolean) -> Unit) {
+        val handler = Handler(Looper.getMainLooper())
+        runCatching { web?.onPause(); web?.resumeTimers(); web?.onResume(); web?.invalidate() }
+        handler.postDelayed({
+            runCatching { web?.visibility = View.GONE }
+            handler.postDelayed({
+                runCatching { web?.visibility = View.VISIBLE; web?.invalidate() }
+                handler.postDelayed({
+                    runCatching {
+                        web?.setLayerType(View.LAYER_TYPE_NONE, null)
+                        web?.postDelayed({ runCatching { web?.setLayerType(View.LAYER_TYPE_HARDWARE, null) } }, 60)
+                    }
+                    web?.evaluateJavascript(JS_WAKE) { _ -> }
+                    handler.postDelayed({
+                        checkScreenBlack(activity) { black -> onDone(black == false) }
+                    }, 700)
+                }, 220)
+            }, 160)
+        }, 120)
+    }
+
+    /** Толчок после выхода из окна: пересобрать вывод кадров заранее, без полной процедуры. */
+    fun nudgeSurface() {
+        runCatching { web?.onPause(); web?.resumeTimers(); web?.onResume(); web?.invalidate() }
+        web?.evaluateJavascript(JS_WAKE) { _ -> }
+    }
+
+    /** Вызов со страницы («кадры идут, но не показываются»): лечение по общим правилам. */
+    private fun healFromPage() {
+        val activity = watchActivity?.get()
+        if (activity == null) {
+            reloadFromPosition()
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastRecoveryAtMs < 20000) { return }
+        lastRecoveryAtMs = now
+        healNow(activity, "страж страницы")
     }
 
     /** Возврат к экрану плеера: быстро проверить кадр (после окна/мини/фона он часто чёрный). */
@@ -407,6 +481,7 @@ object PlayerSession {
     /** Сторож экрана: пока экран плеера на виду — раз в 6 секунд проверяем кадр. */
     fun startPlayerWatch(activity: Activity) {
         stopPlayerWatch()
+        watchActivity = WeakReference(activity)
         val handler = Handler(Looper.getMainLooper())
         val run = object : Runnable {
             override fun run() {
@@ -421,6 +496,7 @@ object PlayerSession {
     fun stopPlayerWatch() {
         screenWatch?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
         screenWatch = null
+        watchActivity = null
     }
 
     /** Сказать странице, что мы хотим играть: страж паузы пропускает только своё. */
@@ -550,8 +626,9 @@ object PlayerSession {
                 if (black == false) {
                     DiagLog.add("движок-плеер: оживление — картинка на месте")
                 } else {
-                    DiagLog.add("движок-плеер: оживление — кадра нет — обновляю страницу с места")
-                    reloadFromPosition()
+                    DiagLog.add("движок-плеер: оживление — кадра нет — лечу")
+                    lastRecoveryAtMs = android.os.SystemClock.elapsedRealtime()
+                    healNow(activity, "оживление")
                 }
             }
         }, 1400)
@@ -805,6 +882,12 @@ object PlayerSession {
             Handler(Looper.getMainLooper()).post {
                 DiagLog.add("движок-плеер: аудит — $trimmed")
             }
+        }
+
+        /** Со страницы: кадры идут, но не показываются — лечить по общим правилам. */
+        @android.webkit.JavascriptInterface
+        fun heal() {
+            Handler(Looper.getMainLooper()).post { healFromPage() }
         }
     }
 
@@ -1928,6 +2011,10 @@ object PlayerSession {
                 if (cnt >= 12) { return false; }
                 try { sessionStorage.setItem('oberegAutoReloadAt', String(Date.now())); sessionStorage.setItem('oberegAutoReloadCount', String(cnt + 1)); } catch (e) { }
                 if (noteText) { try { var h = host(); if (h && h.note) { h.note(noteText); } } catch (e) { } }
+                try {
+                  var hh = host();
+                  if (hh && hh.heal) { hh.heal(); return true; }
+                } catch (e) { }
                 if (typeof window.__oberegReloadFromPosition === 'function') { window.__oberegReloadFromPosition(reason || 'авто'); return true; }
                 return false;
               } catch (e) { return false; }
@@ -1993,8 +2080,8 @@ object PlayerSession {
                 if (dec <= 0) { presAt = Date.now(); return; }
                 if (dec <= presFramesAt) { presAt = Date.now(); return; }
                 presFramesAt = dec;
-                // Кадры идут, а на экран не выводятся — сразу возвращаем поток обновлением с места.
-                if (!autoReload('кадры идут, но не показываются — обновляю с места (авто)', 'авто-кадры')) { presAt = Date.now(); }
+                // Кадры идут, а на экран не выводятся — запускаем лечение (мягкое, потом перезагрузка).
+                if (!autoReload('кадры идут, но не показываются — лечу (авто)', 'авто-кадры')) { presAt = Date.now(); }
               } catch (e) { }
             }
             function videoWatch() {
@@ -2035,7 +2122,7 @@ object PlayerSession {
                 }
                 if (videoRescueCount === 3) {
                   videoRescueCooldownUntil = Date.now() + 90000;
-                  autoReload('видеопоток не ожил — обновляю страницу с места', 'авто-поток');
+                  autoReload('видеопоток не ожил — лечу', 'авто-поток');
                   return;
                 }
               } catch (e) { }

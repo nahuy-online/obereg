@@ -213,6 +213,8 @@ class EnginePlayerActivity : AppCompatActivity(), PlayerSession.Host {
         } else {
             PlayerSession.clearPip(this)
             PlayerSession.applyPipLayout(false)
+            // Заранее будим вывод кадров: после окна картинка любит чернеть.
+            PlayerSession.nudgeSurface()
         }
     }
 
