@@ -409,10 +409,15 @@ object PlayerSession {
             checkScreenBlack(activity) { black ->
                 recoveryChecking = false
                 if (black == true || (black == null && reloadOnUnknown)) {
-                    val now2 = android.os.SystemClock.elapsedRealtime()
-                    if (now2 - lastRecoveryAtMs < 20000) { return@checkScreenBlack }
-                    lastRecoveryAtMs = now2
-                    healNow(activity, reason)
+                    // Сверяем с показом кадров на странице: если кадры реально показываются —
+                    // это ложное подозрение (устройство может прятать видео от снимка экрана).
+                    web?.evaluateJavascript(JS_PRESENTED) { raw ->
+                        if (PlayerApi.decodeJsString(raw).orEmpty() == "1") { return@evaluateJavascript }
+                        val now2 = android.os.SystemClock.elapsedRealtime()
+                        if (now2 - lastRecoveryAtMs < 20000) { return@evaluateJavascript }
+                        lastRecoveryAtMs = now2
+                        healNow(activity, reason)
+                    }
                 }
             }
         }
