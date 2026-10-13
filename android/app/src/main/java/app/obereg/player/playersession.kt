@@ -279,8 +279,8 @@ object PlayerSession {
         return next
     }
 
-    /** Мягкое торможение лечения: если оно не помогает и идёт подряд, паузы растут. */
-    private fun healCooldownMs(): Long = 20000L + minOf(healStrikes, 4) * 40000L
+    /** Пауза между лечениями: короткая и ровная — чтобы восстановление не «выдыхалось» при тестах. */
+    private fun healCooldownMs(): Long = 25000L
 
     private fun noteHealStrike() {
         val now = android.os.SystemClock.elapsedRealtime()
@@ -466,7 +466,6 @@ object PlayerSession {
      * если мягкое пробуждение дважды подряд не помогло — возвращаем поток обновлением с места.
      */
     private fun healNow(activity: Activity, reason: String) {
-        noteHealStrike()
         if (softHealFails < 2 && lastTunerLevel < 1) {
             noteJs("$reason — кадра нет — пробую мягко оживить (без перезагрузки)")
             softHeal(activity) { ok ->
