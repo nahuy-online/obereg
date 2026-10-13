@@ -1249,7 +1249,6 @@ object PlayerSession {
             }
             try { if (typeof window.__oberegUnforce === 'function') { window.__oberegUnforce(); } } catch (e) { }
             try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
-            try { if (typeof window.__oberegReflowRescue === 'function') { window.__oberegReflowRescue('пробуждение'); } } catch (e) { }
             return 'ok';
           } catch (e) { return 'сбой'; }
         })()
@@ -1845,6 +1844,23 @@ object PlayerSession {
                 }
               } catch (e) { }
             }
+            function hideTopPlate() {
+              try {
+                if (LEVEL >= 2) { return; }
+                var el = document.elementFromPoint(Math.round(window.innerWidth / 2), 12);
+                if (!el) { return; }
+                var tn = (el.tagName || '').toLowerCase();
+                if (tn === 'html' || tn === 'body' || tn === 'video') { return; }
+                if (el.closest && (el.closest('#movie_player') || el.closest('#player-container') || el.closest('ytm-player'))) { return; }
+                var r = el.getBoundingClientRect();
+                if (r.height > 140 || r.height <= 0) { return; }
+                if (el.style && el.style.display !== 'none') {
+                  el.style.setProperty('display', 'none', 'important');
+                  var hp = host();
+                  if (hp && hp.note) { hp.note('убрал верхнюю плашку: ' + tn + '.' + String(el.className || '').slice(0, 40)); }
+                }
+              } catch (e) { }
+            }
             function guardPip() {
               try {
                 if (window.__oberegPipMode === true) {
@@ -2214,6 +2230,7 @@ object PlayerSession {
               ensureStyle();
               hideChrome();
               hideChips();
+              hideTopPlate();
             }
             guardPip();
             attachSwipe();
@@ -2228,6 +2245,7 @@ object PlayerSession {
                   ensureStyle();
                   hideChrome();
                   hideChips();
+                  hideTopPlate();
                 }
                 guardPip();
                 attachSwipe();
