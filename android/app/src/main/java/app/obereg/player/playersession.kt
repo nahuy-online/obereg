@@ -274,7 +274,7 @@ object PlayerSession {
         context.getSharedPreferences("obereg_tuner", 0).getInt("level", 0)
 
     fun cycleTunerLevel(context: Context): Int {
-        val next = (tunerLevel(context) + 1) % 4
+        val next = (tunerLevel(context) + 1) % 3
         context.getSharedPreferences("obereg_tuner", 0).edit().putInt("level", next).apply()
         return next
     }
@@ -344,7 +344,6 @@ object PlayerSession {
      */
     private fun wakeAfterAttach() {
         pushWantToJs()
-        if (lastTunerLevel >= 2) { return }
         runCatching { web?.invalidate() }
         // Мигание видимости на уровне вида (не страницы): заставляет заново собрать слой окна.
         runCatching {
@@ -426,7 +425,6 @@ object PlayerSession {
      */
     fun recoverIfBlack(activity: Activity, reason: String, reloadOnUnknown: Boolean) {
         if (!screenVisible) { return }
-        if (lastTunerLevel >= 2) { return }
         if (!active || videoId.isBlank() || pipActive) { return }
         if (recoveryChecking) { return }
         val now = android.os.SystemClock.elapsedRealtime()
@@ -469,7 +467,7 @@ object PlayerSession {
      */
     private fun healNow(activity: Activity, reason: String) {
         noteHealStrike()
-        if (softHealFails < 2 && lastTunerLevel < 2) {
+        if (softHealFails < 2 && lastTunerLevel < 1) {
             noteJs("$reason — кадра нет — пробую мягко оживить (без перезагрузки)")
             softHeal(activity) { ok ->
                 if (ok) {
@@ -511,14 +509,13 @@ object PlayerSession {
 
     /** Толчок после выхода из окна: пересобрать вывод кадров заранее, без полной процедуры. */
     fun nudgeSurface() {
-        if (lastTunerLevel >= 2) { return }
+        if (lastTunerLevel >= 1) { return }
         runCatching { web?.onPause(); web?.resumeTimers(); web?.onResume(); web?.invalidate() }
         web?.evaluateJavascript(JS_WAKE) { _ -> }
     }
 
     /** Вызов со страницы («кадры идут, но не показываются»): лечение по общим правилам. */
     private fun healFromPage() {
-        if (lastTunerLevel >= 2) { return }
         val activity = watchActivity?.get()
         if (!screenVisible || activity == null) {
             // Экран плеера не на виду (мини-плеер): без честной проверки не лечим —
@@ -641,6 +638,7 @@ object PlayerSession {
 
     /** Режим системного окна: в окошке показываем только ролик — на весь кадр. */
     fun applyPipLayout(on: Boolean) {
+        if (lastTunerLevel >= 1) { return }
         web?.evaluateJavascript(APPLY_PIP_JS.replace("__ON__", if (on) "true" else "false")) { _ -> }
     }
 
@@ -2220,7 +2218,6 @@ object PlayerSession {
             }
             guardPip();
             attachSwipe();
-            if (LEVEL < 1) { pinPlayer(); }
             setTimeout(function(){ if (LEVEL < 2) { hideChipsFull(); } }, 2600);
             setTimeout(function(){ reportLayout('в4с'); }, 4000);
             setTimeout(function(){ reportLayout('в10с'); }, 10000);
@@ -2235,27 +2232,13 @@ object PlayerSession {
                 }
                 guardPip();
                 attachSwipe();
-                if (LEVEL < 1 && window.__oberegPipMode !== true) { pinPlayer(); }
-                if (LEVEL < 1 && window.__oberegPipMode !== true && window.__oberegReflowRescue && !window.__oberegRescueBusy) {
-                  try {
-                    var rv = document.querySelector('video');
-                    if (rv) {
-                      var rtop = rv.getBoundingClientRect().top;
-                      if (rtop > 100 || rtop < -80) {
-                        window.__oberegRescueBusy = true;
-                        window.__oberegReflowRescue('цикл');
-                        setTimeout(function(){ window.__oberegRescueBusy = false; }, 1500);
-                      }
-                    }
-                  } catch (e) { }
-                }
                 videoWatch();
                 watchPresentation();
                 watchStuck();
                 try {
-                  // Сторож показа и размера (только при полном тюнинге): если активное играющее видео
-                  // (или его контейнеры) скрыто либо слой «сплющился» (высота/ширина в ноль) — лечим.
-                  if (LEVEL < 1 && window.__oberegPipMode !== true) {
+                  // Сторож показа и размера отключён: его правки вёрстки убивали картинку на переходах
+                  // (проверено уровнями: без этих подтяжек сворачивание/разворот держат видеопоток).
+                  if (false) {
                     var av = (window.__oberegVideo ? window.__oberegVideo() : null);
                     if (av && (!av.paused || (av.currentTime || 0) > 1)) {
                       var shown = false;
