@@ -86,6 +86,16 @@ object PlayerSession {
     /** Проверка кадра уже идёт — второй параллельной быть не должно. */
     private var recoveryChecking = false
 
+    /** Ступень диагностики вёрстки: 0 — полный тюнинг, 1 — без привязки к верху, 2 — без наших правок, 3 — + программный слой. */
+    private var lastTunerLevel = 0
+
+    /** Счётчик подряд идущих лечений и время предыдущего. */
+    private var healStrikes = 0
+    private var prevHealAtMs = 0L
+
+    /** Когда последний раз писали про «тёмный экран, но кадры идут» (редкий случай). */
+    private var lastCaseBNoteAtMs = 0L
+
     /** Сколько раз «мягкое пробуждение» не помогло подряд (после двух — сразу перезагрузка). */
     private var softHealFails = 0
 
@@ -259,6 +269,25 @@ object PlayerSession {
         ) { _ -> }
     }
 
+    /** Ступень диагностики вёрстки (для поиска причины чёрного экрана). */
+    fun tunerLevel(context: Context): Int =
+        context.getSharedPreferences("obereg_tuner", 0).getInt("level", 0)
+
+    fun cycleTunerLevel(context: Context): Int {
+        val next = (tunerLevel(context) + 1) % 4
+        context.getSharedPreferences("obereg_tuner", 0).edit().putInt("level", next).apply()
+        return next
+    }
+
+    /** Мягкое торможение лечения: если оно не помогает и идёт подряд, паузы растут. */
+    private fun healCooldownMs(): Long = 20000L + minOf(healStrikes, 4) * 40000L
+
+    private fun noteHealStrike() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        healStrikes = if (now - prevHealAtMs < 90000) minOf(healStrikes + 1, 6) else 0
+        prevHealAtMs = now
+    }
+
     /** Открыть ролик: если это тот же ролик — просто продолжаем, если новый — грузим. */
     fun open(context: Context, id: String, videoTitle: String) {
         val view = ensure(context)
@@ -315,6 +344,7 @@ object PlayerSession {
      */
     private fun wakeAfterAttach() {
         pushWantToJs()
+        if (lastTunerLevel >= 2) { return }
         runCatching { web?.invalidate() }
         // Мигание видимости на уровне вида (не страницы): заставляет заново собрать слой окна.
         runCatching {
@@ -396,10 +426,11 @@ object PlayerSession {
      */
     fun recoverIfBlack(activity: Activity, reason: String, reloadOnUnknown: Boolean) {
         if (!screenVisible) { return }
+        if (lastTunerLevel >= 2) { return }
         if (!active || videoId.isBlank() || pipActive) { return }
         if (recoveryChecking) { return }
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastRecoveryAtMs < 20000) { return }
+        if (now - lastRecoveryAtMs < healCooldownMs()) { return }
         if (!positionAlive()) { return }
         // Сначала убеждаемся, что ролик уже «прогрет» (есть данные и кадры):
         // иначе первые секунды загрузки (чёрный кадр при rs0) выглядели бы как сбой.
@@ -409,15 +440,17 @@ object PlayerSession {
             checkScreenBlack(activity) { black ->
                 recoveryChecking = false
                 if (black == true || (black == null && reloadOnUnknown)) {
-                    // Сверяем с показом кадров на странице: если кадры реально показываются —
-                    // это ложное подозрение (устройство может прятать видео от снимка экрана).
-                    web?.evaluateJavascript(JS_PRESENTED) { raw ->
-                        if (PlayerApi.decodeJsString(raw).orEmpty() == "1") { return@evaluateJavascript }
-                        val now2 = android.os.SystemClock.elapsedRealtime()
-                        if (now2 - lastRecoveryAtMs < 20000) { return@evaluateJavascript }
-                        lastRecoveryAtMs = now2
-                        healNow(activity, reason)
+                    val now2 = android.os.SystemClock.elapsedRealtime()
+                    if (now2 - lastRecoveryAtMs < healCooldownMs()) { return@checkScreenBlack }
+                    lastRecoveryAtMs = now2
+                    // Отметим редкий случай: экран тёмный, хотя страница считает, что кадры идут.
+                    web?.evaluateJavascript(JS_PRESENTED) { raw2 ->
+                        if (PlayerApi.decodeJsString(raw2).orEmpty() == "1" && now2 - lastCaseBNoteAtMs > 60000) {
+                            lastCaseBNoteAtMs = now2
+                            noteJs("экран тёмный, но кадры показываются — редкий случай, лечу")
+                        }
                     }
+                    healNow(activity, reason)
                 }
             }
         }
@@ -435,7 +468,8 @@ object PlayerSession {
      * если мягкое пробуждение дважды подряд не помогло — возвращаем поток обновлением с места.
      */
     private fun healNow(activity: Activity, reason: String) {
-        if (softHealFails < 2) {
+        noteHealStrike()
+        if (softHealFails < 2 && lastTunerLevel < 2) {
             noteJs("$reason — кадра нет — пробую мягко оживить (без перезагрузки)")
             softHeal(activity) { ok ->
                 if (ok) {
@@ -477,12 +511,14 @@ object PlayerSession {
 
     /** Толчок после выхода из окна: пересобрать вывод кадров заранее, без полной процедуры. */
     fun nudgeSurface() {
+        if (lastTunerLevel >= 2) { return }
         runCatching { web?.onPause(); web?.resumeTimers(); web?.onResume(); web?.invalidate() }
         web?.evaluateJavascript(JS_WAKE) { _ -> }
     }
 
     /** Вызов со страницы («кадры идут, но не показываются»): лечение по общим правилам. */
     private fun healFromPage() {
+        if (lastTunerLevel >= 2) { return }
         val activity = watchActivity?.get()
         if (!screenVisible || activity == null) {
             // Экран плеера не на виду (мини-плеер): без честной проверки не лечим —
@@ -490,7 +526,7 @@ object PlayerSession {
             return
         }
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastRecoveryAtMs < 20000) { return }
+        if (now - lastRecoveryAtMs < healCooldownMs()) { return }
         lastRecoveryAtMs = now
         healNow(activity, "страж страницы")
     }
@@ -931,7 +967,17 @@ object PlayerSession {
             view.evaluateJavascript("try{ window.__oberegVideoId = '$safeId'; }catch(e){} 'ok'") { _ -> }
         }
         pushWantToJs()
-        val script = TUNING.replace("__RATE__", speed.toString())
+        val level = tunerLevel(view.context)
+        lastTunerLevel = level
+        runCatching {
+            view.setLayerType(
+                if (level >= 3) View.LAYER_TYPE_SOFTWARE else View.LAYER_TYPE_HARDWARE,
+                null,
+            )
+        }
+        val script = TUNING
+            .replace("__RATE__", speed.toString())
+            .replace("__LEVEL__", level.toString())
         view.evaluateJavascript(script) { raw ->
             val answer = PlayerApi.decodeJsString(raw)
             if (answer == "готово") {
@@ -1767,6 +1813,8 @@ object PlayerSession {
             if (window.__oberegTuned) { return 'уже'; }
             window.__oberegTuned = true;
             window.__oberegRate = __RATE__;
+            window.__oberegLevel = __LEVEL__;
+            var LEVEL = __LEVEL__;
             window.__oberegLoadedAt = Date.now();
             function host() { return window.__oberegHost || null; }
             function ensureStyle() {
@@ -2165,26 +2213,30 @@ object PlayerSession {
                 }
               } catch (e) { }
             }
-            ensureStyle();
-            hideChrome();
-            hideChips();
+            if (LEVEL < 2) {
+              ensureStyle();
+              hideChrome();
+              hideChips();
+            }
             guardPip();
             attachSwipe();
-            pinPlayer();
-            setTimeout(function(){ hideChipsFull(); }, 2600);
+            if (LEVEL < 1) { pinPlayer(); }
+            setTimeout(function(){ if (LEVEL < 2) { hideChipsFull(); } }, 2600);
             setTimeout(function(){ reportLayout('в4с'); }, 4000);
             setTimeout(function(){ reportLayout('в10с'); }, 10000);
             setTimeout(pulse, 900);
             setInterval(pulse, 1000);
             setInterval(function(){
               try {
-                ensureStyle();
-                hideChrome();
-                hideChips();
+                if (LEVEL < 2) {
+                  ensureStyle();
+                  hideChrome();
+                  hideChips();
+                }
                 guardPip();
                 attachSwipe();
-                if (window.__oberegPipMode !== true) { pinPlayer(); }
-                if (window.__oberegPipMode !== true && window.__oberegReflowRescue && !window.__oberegRescueBusy) {
+                if (LEVEL < 1 && window.__oberegPipMode !== true) { pinPlayer(); }
+                if (LEVEL < 1 && window.__oberegPipMode !== true && window.__oberegReflowRescue && !window.__oberegRescueBusy) {
                   try {
                     var rv = document.querySelector('video');
                     if (rv) {
@@ -2201,9 +2253,9 @@ object PlayerSession {
                 watchPresentation();
                 watchStuck();
                 try {
-                  // Сторож показа и размера: если активное играющее видео (или его контейнеры) скрыто
-                  // либо слой «сплющился» (высота/ширина в ноль — звук идёт, картинки нет) — лечим.
-                  if (window.__oberegPipMode !== true) {
+                  // Сторож показа и размера (только при полном тюнинге): если активное играющее видео
+                  // (или его контейнеры) скрыто либо слой «сплющился» (высота/ширина в ноль) — лечим.
+                  if (LEVEL < 1 && window.__oberegPipMode !== true) {
                     var av = (window.__oberegVideo ? window.__oberegVideo() : null);
                     if (av && (!av.paused || (av.currentTime || 0) > 1)) {
                       var shown = false;

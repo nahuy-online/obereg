@@ -405,6 +405,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
             "Оживить видео (если чёрный экран)",
             "Обновить страницу (с этого места)",
             "Перезагрузить страницу",
+            "Диагностика экрана: уровень " + PlayerSession.tunerLevel(this),
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Плеер")
@@ -435,9 +436,15 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
                         PlayerSession.reloadFromPosition()
                         engineStatus.text = "движок-плеер: обновляю страницу с места"
                     }
-                    else -> {
+                    which == rates.size + 3 -> {
                         PlayerSession.reload()
                         engineStatus.text = "движок-плеер: перезагрузка"
+                    }
+                    else -> {
+                        val lv = PlayerSession.cycleTunerLevel(this)
+                        DiagLog.add("движок-плеер: уровень диагностики $lv")
+                        engineStatus.text = "движок-плеер: уровень $lv — перезагружаю"
+                        PlayerSession.reloadFromPosition()
                     }
                 }
             }
