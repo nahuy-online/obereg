@@ -1249,7 +1249,14 @@ object PlayerSession {
               try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
               try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
             }
-            try { window.scrollTo(0, 0); } catch (e) { }
+            try {
+              window.scrollTo(0, 0);
+              var vv = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+              if (vv) {
+                var tt = Math.round(vv.getBoundingClientRect().top);
+                if (tt > 0 && tt < 220) { window.scrollTo(0, tt); }
+              }
+            } catch (e) { }
             try { if (typeof window.__oberegUnforce === 'function') { window.__oberegUnforce(); } } catch (e) { }
             try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
             return 'ok';
@@ -1389,7 +1396,6 @@ object PlayerSession {
               restorePip();
               setTimeout(function(){
                 try { if (window.__oberegNudge) { window.__oberegNudge('выход из окна'); } } catch (e) { }
-                try { if (window.__oberegReflowRescue) { window.__oberegReflowRescue('выход из окна'); } } catch (e) { }
               }, 300);
             }
           } catch (e) { }
@@ -1883,8 +1889,17 @@ object PlayerSession {
                   var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (v) {
                     v.style.setProperty('position', 'fixed', 'important');
-                    v.style.setProperty('top', '0', 'important');
-                    v.style.setProperty('left', '0', 'important');
+                    try {
+                      var rr = v.getBoundingClientRect();
+                      if (Math.abs(rr.top) > 2) {
+                        var wantTop = Math.round((parseFloat(v.style.top) || 0) - rr.top);
+                        v.style.setProperty('top', wantTop + 'px', 'important');
+                      }
+                      if (Math.abs(rr.left) > 2) {
+                        var wantLeft = Math.round((parseFloat(v.style.left) || 0) - rr.left);
+                        v.style.setProperty('left', wantLeft + 'px', 'important');
+                      }
+                    } catch (e) { }
                     v.style.setProperty('width', '100vw', 'important');
                     v.style.setProperty('height', '100vh', 'important');
                     v.style.setProperty('max-width', 'none', 'important');
