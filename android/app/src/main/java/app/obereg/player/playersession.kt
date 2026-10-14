@@ -508,8 +508,9 @@ object PlayerSession {
 
     /** Толчок после выхода из окна: пересобрать вывод кадров заранее, без полной процедуры. */
     fun nudgeSurface() {
-        if (lastTunerLevel >= 1) { return }
-        runCatching { web?.onPause(); web?.resumeTimers(); web?.onResume(); web?.invalidate() }
+        if (lastTunerLevel < 1) {
+            runCatching { web?.onPause(); web?.resumeTimers(); web?.onResume(); web?.invalidate() }
+        }
         web?.evaluateJavascript(JS_WAKE) { _ -> }
     }
 
@@ -1247,6 +1248,7 @@ object PlayerSession {
               try { if (p && typeof p.playVideo === 'function') { p.playVideo(); } } catch (e) { }
               try { var pr = v.play(); if (pr && pr.catch) { pr.catch(function(){}); } } catch (e) { }
             }
+            try { window.scrollTo(0, 0); } catch (e) { }
             try { if (typeof window.__oberegUnforce === 'function') { window.__oberegUnforce(); } } catch (e) { }
             try { if (typeof window.__oberegNudge === 'function') { window.__oberegNudge('пробуждение'); } } catch (e) { }
             return 'ok';
@@ -1825,7 +1827,7 @@ object PlayerSession {
               (document.head || document.documentElement).appendChild(styl);
             }
             function hideChrome() {
-              ['ytm-header-bar', 'ytm-masthead', 'ytm-mobile-topbar-header', 'ytm-mobile-topbar-renderer', 'ytm-app-header', '#masthead-container'].forEach(function(sel){
+              ['ytm-header-bar', 'ytm-masthead', 'ytm-mobile-topbar-header', 'ytm-mobile-topbar-renderer', 'ytm-app-header', '#masthead-container', 'header.ghost-header', '.ghost-header'].forEach(function(sel){
                 try { var el = document.querySelector(sel); if (el) { el.style.display = 'none'; } } catch (e) { }
               });
             }
@@ -1856,6 +1858,13 @@ object PlayerSession {
                 if (r.height > 140 || r.height <= 0) { return; }
                 if (el.style && el.style.display !== 'none') {
                   el.style.setProperty('display', 'none', 'important');
+                  try {
+                    var pr = el.parentElement;
+                    if (pr && pr !== document.body && pr !== document.documentElement) {
+                      var rp = pr.getBoundingClientRect();
+                      if (rp.height <= 160) { pr.style.setProperty('display', 'none', 'important'); }
+                    }
+                  } catch (e) { }
                   var hp = host();
                   if (hp && hp.note) { hp.note('убрал верхнюю плашку: ' + tn + '.' + String(el.className || '').slice(0, 40)); }
                 }
