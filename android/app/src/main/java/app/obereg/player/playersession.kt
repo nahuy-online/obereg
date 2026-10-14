@@ -1481,10 +1481,11 @@ object PlayerSession {
                     var hasUA = false;
                     var act = false;
                     try { hasUA = !!navigator.userActivation; act = hasUA && !!navigator.userActivation.isActive; } catch (e) { }
-                    var fresh = (now - (window.__oberegLastGesture || 0)) < 600;
-                    var onButton = (now - (window.__oberegLastTapOnButtonAt || 0)) < 900;
+                    var fresh = (now - (window.__oberegLastGesture || 0)) < 800;
                     var gesture = now < (window.__oberegGestureGuardUntil || 0);
-                    var userIntent = (act || (!hasUA && fresh)) && onButton && !gesture;
+                    // Любое свежее касание — действие человека (в т.ч. тап по самому видео —
+                    // обычный способ паузы). Служебные попытки паузы идут без касаний — их и блокируем.
+                    var userIntent = (act || fresh) && !gesture;
                     if (!userIntent) {
                       window.__oberegPauseBlocks = (window.__oberegPauseBlocks || 0) + 1;
                       try {
@@ -1849,24 +1850,22 @@ object PlayerSession {
             function hideTopPlate() {
               try {
                 if (LEVEL >= 2) { return; }
-                var el = document.elementFromPoint(Math.round(window.innerWidth / 2), 12);
-                if (!el) { return; }
-                var tn = (el.tagName || '').toLowerCase();
-                if (tn === 'html' || tn === 'body' || tn === 'video') { return; }
-                if (el.closest && (el.closest('#movie_player') || el.closest('#player-container') || el.closest('ytm-player'))) { return; }
-                var r = el.getBoundingClientRect();
-                if (r.height > 140 || r.height <= 0) { return; }
-                if (el.style && el.style.display !== 'none') {
-                  el.style.setProperty('display', 'none', 'important');
-                  try {
-                    var pr = el.parentElement;
-                    if (pr && pr !== document.body && pr !== document.documentElement) {
-                      var rp = pr.getBoundingClientRect();
-                      if (rp.height <= 160) { pr.style.setProperty('display', 'none', 'important'); }
-                    }
-                  } catch (e) { }
-                  var hp = host();
-                  if (hp && hp.note) { hp.note('убрал верхнюю плашку: ' + tn + '.' + String(el.className || '').slice(0, 40)); }
+                var els = document.querySelectorAll('header.ghost-header, .ghost-header');
+                for (var ti = 0; ti < els.length; ti++) {
+                  var el = els[ti];
+                  if (el.style && el.style.display !== 'none') {
+                    el.style.setProperty('display', 'none', 'important');
+                    try {
+                      var pr = el.parentElement;
+                      var ptn = pr && pr.tagName ? pr.tagName.toLowerCase() : '';
+                      if (pr && ptn !== 'ytm-app' && pr !== document.body && pr !== document.documentElement) {
+                        var rp = pr.getBoundingClientRect();
+                        if (rp.height <= 160) { pr.style.setProperty('display', 'none', 'important'); }
+                      }
+                    } catch (e) { }
+                    var hp = host();
+                    if (hp && hp.note) { hp.note('убрал верхнюю плашку: ' + (el.tagName || '').toLowerCase() + '.' + String(el.className || '').slice(0, 40)); }
+                  }
                 }
               } catch (e) { }
             }
