@@ -965,7 +965,8 @@ object PlayerSession {
             view.evaluateJavascript("try{ window.__oberegVideoId = '$safeId'; }catch(e){} 'ok'") { _ -> }
         }
         pushWantToJs()
-        val level = tunerLevel(view.context)
+        // Диагностика отключена: всегда боевая конфигурация (уровни своё дело сделали и убраны).
+        val level = 0
         lastTunerLevel = level
         runCatching {
             view.setLayerType(
