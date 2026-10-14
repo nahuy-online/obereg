@@ -74,6 +74,8 @@ class MainActivity : AppCompatActivity() {
             log("нажато: лента")
             safe("открытие ленты") {
                 startActivity(android.content.Intent(this, FeedActivity::class.java))
+                // Закрываем стартовый экран: иначе при переходе в «окно» он виден за плеером.
+                finish()
             }
         }
         findViewById<Button>(R.id.btnOpenProfile).setOnClickListener {

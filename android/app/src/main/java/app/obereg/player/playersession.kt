@@ -1416,7 +1416,7 @@ object PlayerSession {
               if (d.getElementById('oberegEarly')) { return; }
               var s = d.createElement('style');
               s.id = 'oberegEarly';
-              s.textContent = 'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display: none !important; }';
+              s.textContent = 'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display: none !important; } #player-container-id { top: 0 !important; }';
               head.appendChild(s);
             }
             put();
@@ -1834,6 +1834,7 @@ object PlayerSession {
               styl.id = 'oberegStyle';
               styl.textContent =
                 'ytm-header-bar, ytm-masthead, ytm-mobile-topbar-header, ytm-mobile-topbar-renderer, ytm-app-header, ytm-consent-bump-renderer, #masthead-container { display:none !important; }' +
+                '#player-container-id { top: 0 !important; }' +
                 'ytm-player, #player-container { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; z-index: 50 !important; background:#000 !important; }' +
                 'ytm-app { padding-top: 0 !important; }' +
                 'ytm-chip-cloud-renderer, ytm-chips-bar-renderer, ytm-chips-bar, ytm-hashtag-header, #chips-wrapper { display:none !important; }';
@@ -2260,6 +2261,10 @@ object PlayerSession {
               hideChrome();
               hideChips();
               hideTopPlate();
+              try {
+                var pc0 = document.getElementById('player-container-id');
+                if (pc0) { pc0.style.setProperty('top', '0', 'important'); }
+              } catch (e) { }
             }
             guardPip();
             attachSwipe();
@@ -2283,6 +2288,11 @@ object PlayerSession {
                     if (!window.__oberegUserScrolled && window.__oberegPipMode !== true) {
                       var modeAt = (window.__oberegModeAt || window.__oberegLoadedAt || 0);
                       if (Date.now() - modeAt < 15000) {
+                        var pc1 = document.getElementById('player-container-id');
+                        if (pc1) {
+                          var pt1 = Math.round(pc1.getBoundingClientRect().top);
+                          if (pt1 > 6 && pt1 < 200) { pc1.style.setProperty('top', '0', 'important'); }
+                        }
                         var vv3 = (window.__oberegVideo ? window.__oberegVideo() : null);
                         if (vv3) {
                           var vt3 = Math.round(vv3.getBoundingClientRect().top + (window.scrollY || 0));
