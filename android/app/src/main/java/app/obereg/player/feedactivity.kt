@@ -776,7 +776,9 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
 
     private fun reportBuildLabel(): String = runCatching {
         val info = packageManager.getPackageInfo(packageName, 0)
-        "${info.versionName} (${info.lastUpdateTime})"
+        val installed = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.ROOT)
+            .format(java.util.Date(info.lastUpdateTime))
+        "${info.versionName} · установлено $installed"
     }.getOrDefault("0.1.0")
 
     companion object {

@@ -265,7 +265,7 @@ object PlayerSession {
     fun setMiniMode(on: Boolean) {
         val flag = if (on) "true" else "false"
         web?.evaluateJavascript(
-            "(function(){ try { window.__oberegMiniMode = $flag; return 'ok'; } catch (e) { return 'сбой'; } })()",
+            "(function(){ try { window.__oberegMiniMode = $flag; window.__oberegUserScrolled = false; window.__oberegModeAt = Date.now(); return 'ok'; } catch (e) { return 'сбой'; } })()",
         ) { _ -> }
     }
 
@@ -1822,6 +1822,11 @@ object PlayerSession {
             window.__oberegLevel = __LEVEL__;
             var LEVEL = __LEVEL__;
             window.__oberegLoadedAt = Date.now();
+            window.__oberegModeAt = Date.now();
+            if (!window.__oberegScrollMark) {
+              window.__oberegScrollMark = true;
+              window.addEventListener('touchmove', function(){ window.__oberegUserScrolled = true; }, { passive: true });
+            }
             function host() { return window.__oberegHost || null; }
             function ensureStyle() {
               if (document.getElementById('oberegStyle')) { return; }
@@ -2270,6 +2275,24 @@ object PlayerSession {
                   hideChrome();
                   hideChips();
                   hideTopPlate();
+                }
+                if (LEVEL < 2) {
+                  // Мягкая подтяжка: в первые 15 секунд после входа/свёртки,
+                  // если человек сам не листал — ставим ролик к самому верху (без дёргания вёрстки).
+                  try {
+                    if (!window.__oberegUserScrolled && window.__oberegPipMode !== true) {
+                      var modeAt = (window.__oberegModeAt || window.__oberegLoadedAt || 0);
+                      if (Date.now() - modeAt < 15000) {
+                        var vv3 = (window.__oberegVideo ? window.__oberegVideo() : null);
+                        if (vv3) {
+                          var vt3 = Math.round(vv3.getBoundingClientRect().top + (window.scrollY || 0));
+                          if (vt3 > 1 && vt3 < 220 && Math.abs((window.scrollY || 0) - vt3) > 8) {
+                            window.scrollTo(0, vt3);
+                          }
+                        }
+                      }
+                    }
+                  } catch (e) { }
                 }
                 guardPip();
                 attachSwipe();
