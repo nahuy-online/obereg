@@ -280,6 +280,53 @@ object PlayerSession {
     }
 
     /** Пауза между лечениями: короткая и ровная — чтобы восстановление не «выдыхалось» при тестах. */
+    /** Текущее окно движка (мини-вид опирается на него, не перенося WebView). */
+    fun attachedView(): android.view.View? = web
+
+    /** Включает мини-вид страницы (усыхание в окошко). */
+    fun enterMiniView(scale: Float, txCss: Float, tyCss: Float) {
+        val view = web ?: return
+        (view as? SessionWebView)?.miniBlockTouches = true
+        runCatching { view.setBackgroundColor(android.graphics.Color.TRANSPARENT) }
+        val s = String.format(java.util.Locale.US, "%.5f", scale)
+        val x = String.format(java.util.Locale.US, "%.2f", txCss)
+        val y = String.format(java.util.Locale.US, "%.2f", tyCss)
+        val js = MINI_VIEW_JS.replace("__S__", s).replace("__TX__", x).replace("__TY__", y)
+        view.evaluateJavascript(js) { _ -> }
+    }
+
+    fun exitMiniView() {
+        val view = web ?: return
+        (view as? SessionWebView)?.miniBlockTouches = false
+        view.evaluateJavascript(MINI_VIEW_OFF_JS) { _ -> }
+    }
+
+    /** Проверка картинки в мини-окне: показываем состояние; если кадры стоят — обновляем поток с места
+     *  (мини-вид переживёт перезагрузку). */
+    fun watchMiniPicture() {
+        val view = web ?: return
+        view.postDelayed({
+            if (!active) { return@postDelayed }
+            view.evaluateJavascript(JS_MINI_PROBE) { raw ->
+                val s = PlayerApi.decodeJsString(raw) ?: ""
+                DiagLog.add("движок-плеер: мини — картинка: $s")
+                if (s.contains("пауза") && wantPlay) { resumeIfPaused() }
+                val f1 = Regex("кадров (\\d+)").find(s)?.groupValues?.get(1)?.toLongOrNull()
+                view.postDelayed({
+                    if (!active) { return@postDelayed }
+                    view.evaluateJavascript(JS_MINI_PROBE) { raw2 ->
+                        val s2 = PlayerApi.decodeJsString(raw2) ?: ""
+                        val f2 = Regex("кадров (\\d+)").find(s2)?.groupValues?.get(1)?.toLongOrNull()
+                        if (f1 != null && f2 != null && f2 == f1 && s2.contains("идёт") && wantPlay && !pipActive) {
+                            DiagLog.add("движок-плеер: мини — кадры стоят, обновляю поток с места")
+                            reloadFromPosition()
+                        }
+                    }
+                }, 1000L)
+            }
+        }, 2200L)
+    }
+
     private fun healCooldownMs(): Long = 25000L
 
     private fun noteHealStrike() {
@@ -302,6 +349,7 @@ object PlayerSession {
             lastPlaying = null
             pageLoadedAtMs = 0L
             DiagLog.add("движок-плеер: открыт для $id (скорость ${speedLabel(speed)})")
+            runCatching { view.evaluateJavascript("try { sessionStorage.removeItem('oberegMiniView'); } catch (e) { }", null) }
             val url = if (id.startsWith("http")) id else "https://www.youtube.com/watch?v=$id&hl=ru"
             view.loadUrl(url)
             PlaybackService.ensure(context)
@@ -998,6 +1046,14 @@ object PlayerSession {
 
     /** WebView, который всегда считает своё окно видимым и сам ловит свайп-сворачивание. */
     private class SessionWebView(context: Context) : WebView(context) {
+
+        /** В мини-виде страница не должна получать касания — они уходят ленте. */
+        var miniBlockTouches = false
+
+        override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+            if (miniBlockTouches) { return false }
+            return super.dispatchTouchEvent(ev)
+        }
 
         private var swipeStartRawY = -1f
         private var swipeStartRawX = 0f
@@ -1813,6 +1869,17 @@ object PlayerSession {
         })()
     """.trimIndent()
 
+    /** Мини-вид: страница визуально усыхает в область миниатюры; сам WebView остаётся
+     *  на месте и не меняет размер (от переноса и уменьшения пропадала картинка). */
+    private val MINI_VIEW_JS =
+        "(function(s,tx,ty){ try { var de=document.documentElement; if(!window.__oberegMiniSaved){window.__oberegMiniSaved={t:de.style.transform,o:de.style.transformOrigin};} de.style.transformOrigin='0 0'; de.style.transform='translate('+tx+'px,'+ty+'px) scale('+s+')'; if(!document.getElementById('oberegMiniStyle')){var st=document.createElement('style');st.id='oberegMiniStyle';st.textContent='html,body{background:transparent !important;}';document.head.appendChild(st);} window.__oberegMiniOn=true; try { sessionStorage.setItem('oberegMiniView', JSON.stringify({s:s,tx:tx,ty:ty})); } catch(e2){} return 'ok'; } catch(e){ return 'сбой'; } })(__S__,__TX__,__TY__)"
+
+    private val MINI_VIEW_OFF_JS =
+        "(function(){ try { var de=document.documentElement; var sv=window.__oberegMiniSaved; if(sv){ de.style.transform=sv.t||''; de.style.transformOrigin=sv.o||''; window.__oberegMiniSaved=null; } else { de.style.transform=''; de.style.transformOrigin=''; } var st=document.getElementById('oberegMiniStyle'); if(st&&st.parentNode){st.parentNode.removeChild(st);} window.__oberegMiniOn=false; try { sessionStorage.removeItem('oberegMiniView'); } catch(e2){} return 'ok'; } catch(e){ return 'сбой'; } })()"
+
+    private val JS_MINI_PROBE =
+        "(function(){ try { var v=(window.__oberegVideo?window.__oberegVideo():null); if(!v){return 'нет видео';} var q=(v.getVideoPlaybackQuality?v.getVideoPlaybackQuality().totalVideoFrames:-1); return (v.videoWidth+'x'+v.videoHeight+' | '+(v.paused?'пауза':'идёт')+' | кадров '+q); } catch(e){ return 'сбой'; } })()"
+
     private val TUNING = """
         (function(){
           try {
@@ -1827,6 +1894,19 @@ object PlayerSession {
               window.__oberegScrollMark = true;
               window.addEventListener('touchmove', function(){ window.__oberegUserScrolled = true; }, { passive: true });
             }
+            // Мини-вид переживает перезагрузку страницы: восстанавливаем усыхание в окошко.
+            try {
+              var mv0 = sessionStorage.getItem('oberegMiniView');
+              if (mv0) {
+                var mo = JSON.parse(mv0);
+                var de0 = document.documentElement;
+                de0.style.transformOrigin = '0 0';
+                de0.style.transform = 'translate(' + mo.tx + 'px,' + mo.ty + 'px) scale(' + mo.s + ')';
+                var ms0 = document.getElementById('oberegMiniStyle');
+                if (!ms0) { var ms1 = document.createElement('style'); ms1.id = 'oberegMiniStyle'; ms1.textContent = 'html,body{background:transparent !important;}'; document.head.appendChild(ms1); }
+                window.__oberegMiniOn = true;
+              }
+            } catch (e) { }
             function host() { return window.__oberegHost || null; }
             function ensureStyle() {
               if (document.getElementById('oberegStyle')) { return; }
@@ -2285,7 +2365,7 @@ object PlayerSession {
                   // Мягкая подтяжка: в первые 15 секунд после входа/свёртки,
                   // если человек сам не листал — ставим ролик к самому верху (без дёргания вёрстки).
                   try {
-                    if (!window.__oberegUserScrolled && window.__oberegPipMode !== true) {
+                    if (!window.__oberegUserScrolled && window.__oberegPipMode !== true && window.__oberegMiniOn !== true) {
                       var modeAt = (window.__oberegModeAt || window.__oberegLoadedAt || 0);
                       if (Date.now() - modeAt < 15000) {
                         var pc1 = document.getElementById('player-container-id');

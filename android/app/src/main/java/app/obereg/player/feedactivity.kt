@@ -60,6 +60,10 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
     private lateinit var engineStatus: TextView
     private lateinit var engineSpeed: TextView
 
+    /** Фоны панели плеера до ухода в мини-вид (после — возвращаем). */
+    private var paneBgSaved: android.graphics.drawable.Drawable? = null
+    private var holderBgSaved: android.graphics.drawable.Drawable? = null
+
     /** Одна повторная попытка спросить данные у движка: страница иногда достраивается позже. */
     private var engineRetried = false
 
@@ -238,7 +242,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         }
         if (PlayerSession.active && !PlayerSession.pipActive) {
             miniBar.visibility = android.view.View.VISIBLE
-            PlayerSession.attachTo(miniHolder)
+            // WebView остаётся в панели (мини-вид «просвечивает» её область) — не переносим.
             // Поверх мини-видео — «крышка»: тап по нему разворачивает плеер,
             // а не уходит нечаянно в страницу (оттуда раньше прилетала пауза).
             if (miniHolder.findViewWithTag<android.view.View>("mini-cover") == null) {
@@ -291,6 +295,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         playerPane.visibility = android.view.View.VISIBLE
         miniBar.visibility = android.view.View.GONE
         PlayerSession.setMiniMode(false)
+        exitMiniView()
         PlayerSession.host = this
         PlayerSession.lastStatus = { text -> runOnUiThread { engineStatus.text = text } }
         engineSpeed.text = speedLabel(PlayerSession.speed)
@@ -302,6 +307,60 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
     }
 
     /** Свернуть в мини-плеер: экран прячется, ролик переезжает вниз оболочки. */
+    /** Включает мини-вид: WebView остаётся на месте и не меняет размер (от переноса
+     *  и уменьшения на этом телефоне пропадала картинка) — страница сама усыхает
+     *  в прямоугольник миниатюры, а обрезка вывода показывает ровно этот прямоугольник. */
+    private fun applyMiniView() {
+        engineTopBar.visibility = android.view.View.GONE
+        engineStatus.visibility = android.view.View.GONE
+        if (paneBgSaved == null) {
+            paneBgSaved = playerPane.background
+            holderBgSaved = engineHolder.background
+        }
+        playerPane.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        engineHolder.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        val wv = PlayerSession.attachedView()
+        if (wv == null) {
+            playerPane.visibility = android.view.View.GONE
+            return
+        }
+        playerPane.visibility = android.view.View.VISIBLE
+        playerPane.post {
+            if (playerMode || PlayerSession.attachedView() !== wv) { return@post }
+            val hv = IntArray(2)
+            miniHolder.getLocationOnScreen(hv)
+            val wvLoc = IntArray(2)
+            wv.getLocationOnScreen(wvLoc)
+            val wpx = wv.width
+            if (wpx <= 0 || miniHolder.width <= 0) { return@post }
+            val s = miniHolder.width.toFloat() / wpx.toFloat()
+            val dens = resources.displayMetrics.density
+            val tx = (hv[0] - wvLoc[0]).toFloat() / dens
+            val ty = (hv[1] - wvLoc[1]).toFloat() / dens
+            wv.clipBounds = android.graphics.Rect(
+                hv[0] - wvLoc[0],
+                hv[1] - wvLoc[1],
+                hv[0] - wvLoc[0] + miniHolder.width,
+                hv[1] - wvLoc[1] + miniHolder.height,
+            )
+            DiagLog.add("движок-плеер: мини — окно ${miniHolder.width}x${miniHolder.height}, масштаб " + String.format(java.util.Locale.US, "%.3f", s))
+            PlayerSession.enterMiniView(s, tx, ty)
+            PlayerSession.watchMiniPicture()
+        }
+    }
+
+    /** Возвращает обычный вид плеера: снимаем мини-усыхание и обрезку, показываем панель. */
+    private fun exitMiniView() {
+        PlayerSession.exitMiniView()
+        PlayerSession.attachedView()?.clipBounds = null
+        engineTopBar.visibility = android.view.View.VISIBLE
+        engineStatus.visibility = android.view.View.VISIBLE
+        if (paneBgSaved != null) {
+            playerPane.background = paneBgSaved
+            engineHolder.background = holderBgSaved
+        }
+    }
+
     private fun collapsePlayer() {
         if (!playerMode) { return }
         val now = android.os.SystemClock.elapsedRealtime()
@@ -314,8 +373,10 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         PlayerSession.stopPlayerWatch()
         PlayerSession.lastStatus = null
         PlayerSession.setMiniMode(true)
-        playerPane.visibility = android.view.View.GONE
+        // Мини-вид: WebView не переносим и не уменьшаем (от этого пропадала картинка).
+        // Сначала показываем полосу, затем «усыхаем» страницу в её миниатюру.
         updateMini()
+        applyMiniView()
     }
 
     /** Развернуть из мини обратно на весь экран. */
