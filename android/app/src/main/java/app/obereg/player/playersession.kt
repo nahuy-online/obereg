@@ -65,6 +65,9 @@ object PlayerSession {
     /** Оболочка обновляет мини-плеер, когда ролик закрыт из уведомления или уведомление убрано. */
     var onReleased: (() -> Unit)? = null
 
+    /** Отчёт вёрстки со страницы (для позиции лёгких чипов под кадром). */
+    var onLayoutReport: ((String) -> Unit)? = null
+
     /** Защита от дребезга жеста экрана (одна свёртка на полторы секунды). */
     private var lastViewMinimizeAt = 0L
 
@@ -958,6 +961,7 @@ object PlayerSession {
         @android.webkit.JavascriptInterface
         fun layout(report: String) {
             DiagLog.add("движок-плеер: вёрстка — " + report.take(460))
+            onLayoutReport?.invoke(report)
         }
 
         /** Сообщение со страницы (страж паузы, редкие события) — с защитой от повторов. */
@@ -1324,7 +1328,7 @@ object PlayerSession {
     private val APPLY_PIP_JS = """
         (function(){
           function pipCss() {
-            return 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
+            return 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:cover !important;z-index:2147483646 !important;background:#000 !important;}';
           }
           function enforcePipVideo(force) {
             try {
@@ -1351,7 +1355,7 @@ object PlayerSession {
                 v.style.setProperty('height', '100vh', 'important');
                 v.style.setProperty('max-width', 'none', 'important');
                 v.style.setProperty('max-height', 'none', 'important');
-                v.style.setProperty('object-fit', 'contain', 'important');
+                v.style.setProperty('object-fit', 'cover', 'important');
                 v.style.setProperty('z-index', '2147483646', 'important');
                 v.style.setProperty('background', '#000', 'important');
               } else {
@@ -1416,6 +1420,35 @@ object PlayerSession {
               window.__oberegPipHidden = [];
             } catch (e) { }
           }
+          // Заполнение окна кадром: в растянутом окошке видео само масштабируется без пустых полос.
+          window.__oberegPipFit = function() {
+            try {
+              if (window.__oberegPipMode !== true) { return; }
+              var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+              if (!v) { return; }
+              var W = window.innerWidth || 1;
+              var H = window.innerHeight || 1;
+              var vw = v.videoWidth || 0;
+              var vh = v.videoHeight || 0;
+              if (vw <= 0 || vh <= 0) { return; }
+              var k = Math.max(W / vw, H / vh);
+              var nw = Math.round(vw * k);
+              var nh = Math.round(vh * k);
+              v.style.setProperty('position', 'fixed', 'important');
+              v.style.setProperty('left', Math.round((W - nw) / 2) + 'px', 'important');
+              v.style.setProperty('top', Math.round((H - nh) / 2) + 'px', 'important');
+              v.style.setProperty('width', nw + 'px', 'important');
+              v.style.setProperty('height', nh + 'px', 'important');
+              v.style.setProperty('max-width', 'none', 'important');
+              v.style.setProperty('max-height', 'none', 'important');
+              v.style.setProperty('object-fit', 'cover', 'important');
+              v.style.setProperty('z-index', '2147483646', 'important');
+            } catch (e) { }
+          };
+          if (!window.__oberegPipResizeHooked) {
+            window.__oberegPipResizeHooked = true;
+            try { window.addEventListener('resize', function(){ try { window.__oberegPipFit(); } catch (e) { } }); } catch (e) { }
+          }
           try {
             var on = __ON__;
             window.__oberegPipMode = on;
@@ -1429,6 +1462,11 @@ object PlayerSession {
               st.textContent = pipCss();
               enforcePipVideo(true);
               isolatePip();
+              try {
+                window.__oberegPipFit();
+                if (window.__oberegPipFitTimer) { clearInterval(window.__oberegPipFitTimer); }
+                window.__oberegPipFitTimer = setInterval(window.__oberegPipFit, 700);
+              } catch (e) { }
               var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
               if (v) { try { v.setAttribute('playsinline',''); } catch (e) { } }
               setTimeout(function(){
@@ -1447,6 +1485,9 @@ object PlayerSession {
                 } catch (e) { }
               }, 1800);
             } else {
+              try {
+                if (window.__oberegPipFitTimer) { clearInterval(window.__oberegPipFitTimer); window.__oberegPipFitTimer = null; }
+              } catch (e) { }
               if (st && st.parentNode) { st.parentNode.removeChild(st); }
               enforcePipVideo(false);
               restorePip();
@@ -1971,7 +2012,7 @@ object PlayerSession {
                     st.id = 'oberegPipCss';
                     (document.head || document.documentElement).appendChild(st);
                   }
-                  st.textContent = 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:contain !important;z-index:2147483646 !important;background:#000 !important;}';
+                  st.textContent = 'html,body{overflow:hidden !important; background:#000 !important;} video{position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;max-width:none !important;max-height:none !important;object-fit:cover !important;z-index:2147483646 !important;background:#000 !important;}';
                   var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
                   if (v) {
                     v.style.setProperty('position', 'fixed', 'important');
@@ -1986,13 +2027,7 @@ object PlayerSession {
                         v.style.setProperty('left', wantLeft + 'px', 'important');
                       }
                     } catch (e) { }
-                    v.style.setProperty('width', '100vw', 'important');
-                    v.style.setProperty('height', '100vh', 'important');
-                    v.style.setProperty('max-width', 'none', 'important');
-                    v.style.setProperty('max-height', 'none', 'important');
-                    v.style.setProperty('object-fit', 'contain', 'important');
-                    v.style.setProperty('z-index', '2147483646', 'important');
-                    v.style.setProperty('background', '#000', 'important');
+                    if (window.__oberegPipFit) { window.__oberegPipFit(); }
                   }
                   if (!window.__oberegPipHidden) { window.__oberegPipHidden = []; }
                   var node = v;
@@ -2116,6 +2151,29 @@ object PlayerSession {
                     if (next > -220 && next < 220) {
                       document.body.style.setProperty('margin-top', next + 'px', 'important');
                     }
+                  }
+                }
+              } catch (e) { }
+            }
+            function hideAdChip() {
+              try {
+                var root = document.getElementById('player-container-id') || document.getElementById('movie_player');
+                if (!root) { return; }
+                var scan = root.querySelectorAll('button, a, span, div');
+                for (var ai = 0; ai < scan.length; ai++) {
+                  var el = scan[ai];
+                  if (el.__oberegAdTag) { continue; }
+                  var t = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  if (!t || t.length > 28 || t.indexOf('реклама') < 0) { continue; }
+                  var node = el;
+                  for (var up = 0; up < 4 && node.parentElement && node.parentElement !== root; up++) {
+                    var rp = node.parentElement.getBoundingClientRect ? node.parentElement.getBoundingClientRect() : null;
+                    if (!rp || rp.height > 130 || rp.width > 560) { break; }
+                    node = node.parentElement;
+                  }
+                  if (node !== root) {
+                    node.__oberegAdTag = true;
+                    node.style.setProperty('display', 'none', 'important');
                   }
                 }
               } catch (e) { }
@@ -2341,6 +2399,7 @@ object PlayerSession {
               hideChrome();
               hideChips();
               hideTopPlate();
+              hideAdChip();
               try {
                 var pc0 = document.getElementById('player-container-id');
                 if (pc0) { pc0.style.setProperty('top', '0', 'important'); }
@@ -2348,7 +2407,8 @@ object PlayerSession {
             }
             guardPip();
             attachSwipe();
-            setTimeout(function(){ if (LEVEL < 2) { hideChipsFull(); } }, 2600);
+            setTimeout(function(){ if (LEVEL < 2) { hideChipsFull(); hideAdChip(); } }, 2600);
+            setTimeout(function(){ reportLayout('в1с'); }, 1400);
             setTimeout(function(){ reportLayout('в4с'); }, 4000);
             setTimeout(function(){ reportLayout('в10с'); }, 10000);
             setTimeout(pulse, 900);
@@ -2360,6 +2420,7 @@ object PlayerSession {
                   hideChrome();
                   hideChips();
                   hideTopPlate();
+                  hideAdChip();
                 }
                 if (LEVEL < 2) {
                   // Мягкая подтяжка: в первые 15 секунд после входа/свёртки,
