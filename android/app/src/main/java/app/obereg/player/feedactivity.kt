@@ -157,6 +157,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         playlistsPill.setOnClickListener { load(MODE_PLAYLISTS) }
         findViewById<Button>(R.id.btnLibLogin).setOnClickListener { openLogin() }
 
+        listView.itemsCanFocus = false
         listView.setOnItemClickListener { _, _, position, _ ->
             when {
                 mode == MODE_PLAYLISTS -> playlists.getOrNull(position)?.let(::openPlaylist)
