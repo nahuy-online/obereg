@@ -158,6 +158,34 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         findViewById<Button>(R.id.btnLibLogin).setOnClickListener { openLogin() }
 
         listView.itemsCanFocus = false
+        listView.setOnItemLongClickListener { _, _, position, _ ->
+            val it0 = items.getOrNull(position)
+            if (it0 == null || it0.videoId.length != 11) {
+                false
+            } else {
+                val vid = it0.videoId
+                val ttl = it0.title.ifEmpty { vid }
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(ttl.take(80))
+                    .setItems(arrayOf("+ В очередь", "Скопировать ссылку")) { _, which ->
+                        when (which) {
+                            0 -> {
+                                val n = PlayerSession.addToQueue(this, vid, ttl)
+                                android.widget.Toast.makeText(this, "В очередь: " + ttl.take(40) + " (всего " + n + ")", android.widget.Toast.LENGTH_SHORT).show()
+                                DiagLog.add("лента: в очередь — " + vid + " (всего " + n + ")")
+                            }
+                            1 -> {
+                                val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("Obereg", "https://youtu.be/" + vid))
+                                android.widget.Toast.makeText(this, "Ссылка скопирована", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    .setNegativeButton("Закрыть", null)
+                    .show()
+                true
+            }
+        }
         listView.setOnItemClickListener { _, _, position, _ ->
             when {
                 mode == MODE_PLAYLISTS -> playlists.getOrNull(position)?.let(::openPlaylist)
@@ -394,6 +422,10 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
 
     override fun onPipRequested() {
         runOnUiThread { enterPip() }
+    }
+
+    override fun onToggleRequested() {
+        runOnUiThread { PlayerSession.togglePlayPause() }
     }
 
     override fun onQueueRequested() {

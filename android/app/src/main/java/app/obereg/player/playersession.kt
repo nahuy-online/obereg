@@ -33,6 +33,7 @@ object PlayerSession {
         fun onSpeedRequested() { }
         fun onPipRequested() { }
         fun onQueueRequested() { }
+        fun onToggleRequested() { }
         fun onQueueNext(id: String, title: String) { }
         fun canAutoAdvance(): Boolean { return false }
     }
@@ -987,6 +988,9 @@ object PlayerSession {
         } else if (lastPlaying != pulse.playing) {
             DiagLog.add(if (pulse.playing) "движок-плеер: игра" else "движок-плеер: пауза")
         }
+        if (lastPlaying == null || lastPlaying != pulse.playing) {
+            web?.evaluateJavascript("window.__oberegToolbarPlay && window.__oberegToolbarPlay(" + pulse.playing + ")", null)
+        }
         lastPlaying = pulse.playing
         PlaybackService.update(
             playing = pulse.playing,
@@ -1047,6 +1051,7 @@ object PlayerSession {
                     "speed" -> host?.onSpeedRequested()
                     "pip" -> host?.onPipRequested()
                     "queue" -> host?.onQueueRequested()
+                    "toggle" -> host?.onToggleRequested()
                 }
             }
         }
@@ -2289,33 +2294,46 @@ object PlayerSession {
               try {
                 if (LEVEL >= 2) { return; }
                 var tb = document.getElementById('oberegToolbar');
-                if (tb) { return; }
-                var pc = document.getElementById('player-container-id') || document.querySelector('ytm-player');
-                if (!pc || !pc.parentNode) { return; }
-                tb = document.createElement('div');
-                tb.id = 'oberegToolbar';
-                tb.style.cssText = 'display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:4px 12px 2px 12px;';
-                var sp = document.createElement('span');
-                sp.className = 'obereg-speed';
-                sp.textContent = toolFmt(window.__oberegRate || 1);
-                sp.style.cssText = 'display:inline-block;padding:7px 14px;border-radius:16px;background:rgba(255,255,255,0.14);color:#EEF1F6;font-size:13px;font-weight:600;';
-                var pp = document.createElement('span');
-                pp.className = 'obereg-pip';
-                pp.textContent = '▢ В окне';
-                pp.style.cssText = 'display:inline-block;padding:7px 14px;border-radius:16px;background:rgba(255,255,255,0.10);color:#7AA2FF;font-size:13px;font-weight:600;';
-                var qq = document.createElement('span');
-                qq.className = 'obereg-queue';
-                qq.textContent = '+ В очередь';
-                qq.style.cssText = 'display:inline-block;padding:7px 14px;border-radius:16px;background:rgba(255,255,255,0.14);color:#EEF1F6;font-size:13px;font-weight:600;';
-                sp.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('speed'); } } catch (err) { } });
-                pp.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('pip'); } } catch (err) { } });
-                qq.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('queue'); } } catch (err) { } });
-                tb.appendChild(sp);
-                tb.appendChild(qq);
-                tb.appendChild(pp);
-                pc.parentNode.insertBefore(tb, pc.nextSibling);
+                var v = (window.__oberegVideo ? window.__oberegVideo() : document.querySelector('video'));
+                var bottom = 0;
+                if (v) { try { bottom = Math.round(v.getBoundingClientRect().bottom); } catch (e) { } }
+                if (bottom < 60 || bottom > 1500) { bottom = Math.round((window.innerWidth || 360) * 9 / 16); }
+                if (!tb) {
+                  tb = document.createElement('div');
+                  tb.id = 'oberegToolbar';
+                  tb.style.cssText = 'position:fixed;right:10px;z-index:2147483000;display:flex;align-items:center;gap:6px;';
+                  var mk = function(txt, cls, fg) {
+                    var el = document.createElement('span');
+                    el.className = cls;
+                    el.textContent = txt;
+                    el.style.cssText = 'display:inline-block;padding:7px 12px;border-radius:16px;background:rgba(20,24,32,0.82);color:' + (fg || '#EEF1F6') + ';font-size:12.5px;font-weight:600;';
+                    return el;
+                  };
+                  var pb = mk('⏸', 'obereg-play', '#FFFFFF');
+                  var sp = mk(toolFmt(window.__oberegRate || 1), 'obereg-speed', '#EEF1F6');
+                  var qq = mk('+ В очередь', 'obereg-queue', '#EEF1F6');
+                  var pp = mk('▢ В окне', 'obereg-pip', '#7AA2FF');
+                  pb.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('toggle'); } } catch (err) { } });
+                  sp.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('speed'); } } catch (err) { } });
+                  qq.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('queue'); } } catch (err) { } });
+                  pp.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('pip'); } } catch (err) { } });
+                  tb.appendChild(pb);
+                  tb.appendChild(sp);
+                  tb.appendChild(qq);
+                  tb.appendChild(pp);
+                  (document.body || document.documentElement).appendChild(tb);
+                }
+                tb.style.setProperty('top', (bottom + 6) + 'px', 'important');
+                if (window.__oberegPipMode === true || window.__oberegMiniOn === true) {
+                  tb.style.setProperty('display', 'none', 'important');
+                } else {
+                  tb.style.removeProperty('display');
+                }
               } catch (e) { }
             }
+            window.__oberegToolbarPlay = function(pl) {
+              try { var el = document.querySelector('#oberegToolbar .obereg-play'); if (el) { el.textContent = pl ? '⏸' : '▶'; } } catch (e) { }
+            };
             window.__oberegToolbarSpeed = function(lbl) {
               try { var el = document.querySelector('#oberegToolbar .obereg-speed'); if (el && lbl) { el.textContent = lbl; } } catch (e) { }
             };
