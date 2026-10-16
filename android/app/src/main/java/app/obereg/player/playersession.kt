@@ -30,6 +30,11 @@ object PlayerSession {
     /** Кто сейчас показывает ролик: экран плеера просит свернуть в мини-плеер по свайпу. */
     interface Host {
         fun onMinimizeRequested()
+        fun onSpeedRequested() { }
+        fun onPipRequested() { }
+        fun onQueueRequested() { }
+        fun onQueueNext(id: String, title: String) { }
+        fun canAutoAdvance(): Boolean { return false }
     }
 
     /** Кто умеет обновлять кнопку play/pause в системном окне. */
@@ -64,9 +69,6 @@ object PlayerSession {
 
     /** Оболочка обновляет мини-плеер, когда ролик закрыт из уведомления или уведомление убрано. */
     var onReleased: (() -> Unit)? = null
-
-    /** Отчёт вёрстки со страницы (для позиции лёгких чипов под кадром). */
-    var onLayoutReport: ((String) -> Unit)? = null
 
     /** Защита от дребезга жеста экрана (одна свёртка на полторы секунды). */
     private var lastViewMinimizeAt = 0L
@@ -302,6 +304,77 @@ object PlayerSession {
         val view = web ?: return
         (view as? SessionWebView)?.miniBlockTouches = false
         view.evaluateJavascript(MINI_VIEW_OFF_JS) { _ -> }
+    }
+
+    /** Снять возможные «залипшие» скрытия от окна — контролы и кнопка паузы возвращаются. */
+    fun panicResetPip() {
+        web?.evaluateJavascript("window.__oberegPipPanicReset && window.__oberegPipPanicReset()", null)
+    }
+
+    /** Принудительно разблокировать касания страницы (страховка после мини). */
+    fun clearMiniTouchBlock() {
+        (web as? SessionWebView)?.miniBlockTouches = false
+    }
+
+    // ——— Очередь просмотра ———
+
+    private val queueIds = ArrayList<String>()
+    private val queueTitles = ArrayList<String>()
+    private var queueAdvanceAtMs = 0L
+
+    fun queueSize(): Int = queueIds.size
+
+    /** Добавить ролик в очередь (без дублей). Возвращает новый размер очереди. */
+    fun addToQueue(context: Context, id: String, title: String): Int {
+        val vid = PlaybackCodec.sanitizeVideoId(id)
+        if (vid.isBlank()) { return queueIds.size }
+        if (!queueIds.contains(vid)) {
+            queueIds.add(vid)
+            queueTitles.add(title.ifBlank { vid })
+            saveQueue(context)
+        }
+        return queueIds.size
+    }
+
+    fun clearQueue(context: Context) {
+        queueIds.clear()
+        queueTitles.clear()
+        saveQueue(context)
+    }
+
+    /** Играть следующий из очереди. true — переключились. */
+    fun playNextFromQueue(context: Context?): Boolean {
+        if (queueIds.isEmpty()) { return false }
+        val id = queueIds.removeAt(0)
+        val t = queueTitles.removeAt(0)
+        context?.let { saveQueue(it) }
+        DiagLog.add("движок-плеер: очередь — играю следующий $id (осталось ${queueIds.size})")
+        host?.onQueueNext(id, t)
+        return true
+    }
+
+    fun loadQueue(context: Context) {
+        if (queueIds.isNotEmpty()) { return }
+        try {
+            val prefs = context.getSharedPreferences("obereg_queue", Context.MODE_PRIVATE)
+            val ids = prefs.getString("ids", "") ?: ""
+            if (ids.isBlank()) { return }
+            val titleList = (prefs.getString("titles", "") ?: "").split("\n")
+            val idList = ids.split("\n").filter { it.isNotBlank() }
+            for (i in idList.indices) {
+                queueIds.add(idList[i])
+                queueTitles.add(titleList.getOrElse(i) { idList[i] })
+            }
+        } catch (e: Exception) { }
+    }
+
+    private fun saveQueue(context: Context) {
+        try {
+            context.getSharedPreferences("obereg_queue", Context.MODE_PRIVATE).edit()
+                .putString("ids", queueIds.joinToString("\n"))
+                .putString("titles", queueTitles.joinToString("\n") { it.replace("\n", " ") })
+                .apply()
+        } catch (e: Exception) { }
     }
 
     /** Проверка картинки в мини-окне: показываем состояние; если кадры стоят — обновляем поток с места
@@ -699,6 +772,7 @@ object PlayerSession {
         web?.evaluateJavascript(
             "window.__oberegRate = $rate; (function(){var v=document.querySelector('video'); if(v){v.playbackRate=$rate;}})(); 'ok'",
         ) { _ -> }
+        web?.evaluateJavascript("window.__oberegToolbarSpeed && window.__oberegToolbarSpeed('" + speedLabel(rate) + "')", null)
     }
 
     fun reload() {
@@ -929,6 +1003,13 @@ object PlayerSession {
             lastResumeTryAt = now
             resumeIfPaused()
         }
+        // Очередь: текущий ролик досмотрен — включаем следующий (только в полном экране).
+        if (!pulse.playing && PlaybackCodec.nearEnd(pulse) && queueIds.isNotEmpty() &&
+            !pipActive && host?.canAutoAdvance() == true && now - queueAdvanceAtMs > 15000
+        ) {
+            queueAdvanceAtMs = now
+            playNextFromQueue(host as? Context)
+        }
     }
 
     private fun post(text: String) {
@@ -958,10 +1039,21 @@ object PlayerSession {
             Handler(Looper.getMainLooper()).post { host?.onMinimizeRequested() }
         }
 
+        /** Команды со страничных чипов: скорость и «В окне». */
+        @android.webkit.JavascriptInterface
+        fun cmd(name: String) {
+            Handler(Looper.getMainLooper()).post {
+                when (name) {
+                    "speed" -> host?.onSpeedRequested()
+                    "pip" -> host?.onPipRequested()
+                    "queue" -> host?.onQueueRequested()
+                }
+            }
+        }
+
         @android.webkit.JavascriptInterface
         fun layout(report: String) {
             DiagLog.add("движок-плеер: вёрстка — " + report.take(460))
-            onLayoutReport?.invoke(report)
         }
 
         /** Сообщение со страницы (страж паузы, редкие события) — с защитой от повторов. */
@@ -1396,6 +1488,7 @@ object PlayerSession {
                       window.__oberegPipHidden.push({ el: k, value: '', priority: '' });
                     }
                     k.style.setProperty('display', 'none', 'important');
+                    try { k.setAttribute('data-obereg-piphid', '1'); } catch (e) { }
                   }
                 }
                 node = parent;
@@ -1418,6 +1511,13 @@ object PlayerSession {
                 } catch (e) { }
               }
               window.__oberegPipHidden = [];
+              try {
+                var strays = document.querySelectorAll('[data-obereg-piphid]');
+                for (var si = 0; si < strays.length; si++) {
+                  try { strays[si].style.removeProperty('display'); } catch (e) { }
+                  try { strays[si].removeAttribute('data-obereg-piphid'); } catch (e) { }
+                }
+              } catch (e) { }
             } catch (e) { }
           }
           // Заполнение окна кадром: в растянутом окошке видео само масштабируется без пустых полос.
@@ -2042,6 +2142,7 @@ object PlayerSession {
                       if (k.contains && k.contains(v)) { continue; }
                       if (k.style && k.style.display !== 'none') {
                         k.style.setProperty('display', 'none', 'important');
+                        try { k.setAttribute('data-obereg-piphid', '1'); } catch (e) { }
                         window.__oberegPipHidden.push(k);
                       }
                     }
@@ -2178,6 +2279,55 @@ object PlayerSession {
                 }
               } catch (e) { }
             }
+            function toolFmt(r) {
+              r = parseFloat(r) || 1;
+              var s = (Math.round(r * 100) / 100) + '';
+              if (s.indexOf('.') >= 0) { s = s.replace('.', ','); }
+              return s + '×';
+            }
+            function ensureToolbar() {
+              try {
+                if (LEVEL >= 2) { return; }
+                var tb = document.getElementById('oberegToolbar');
+                if (tb) { return; }
+                var pc = document.getElementById('player-container-id') || document.querySelector('ytm-player');
+                if (!pc || !pc.parentNode) { return; }
+                tb = document.createElement('div');
+                tb.id = 'oberegToolbar';
+                tb.style.cssText = 'display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:4px 12px 2px 12px;';
+                var sp = document.createElement('span');
+                sp.className = 'obereg-speed';
+                sp.textContent = toolFmt(window.__oberegRate || 1);
+                sp.style.cssText = 'display:inline-block;padding:7px 14px;border-radius:16px;background:rgba(255,255,255,0.14);color:#EEF1F6;font-size:13px;font-weight:600;';
+                var pp = document.createElement('span');
+                pp.className = 'obereg-pip';
+                pp.textContent = '▢ В окне';
+                pp.style.cssText = 'display:inline-block;padding:7px 14px;border-radius:16px;background:rgba(255,255,255,0.10);color:#7AA2FF;font-size:13px;font-weight:600;';
+                var qq = document.createElement('span');
+                qq.className = 'obereg-queue';
+                qq.textContent = '+ В очередь';
+                qq.style.cssText = 'display:inline-block;padding:7px 14px;border-radius:16px;background:rgba(255,255,255,0.14);color:#EEF1F6;font-size:13px;font-weight:600;';
+                sp.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('speed'); } } catch (err) { } });
+                pp.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('pip'); } } catch (err) { } });
+                qq.addEventListener('click', function(e){ try { e.stopPropagation(); e.preventDefault(); } catch (err) { } try { var h = host(); if (h && h.cmd) { h.cmd('queue'); } } catch (err) { } });
+                tb.appendChild(sp);
+                tb.appendChild(qq);
+                tb.appendChild(pp);
+                pc.parentNode.insertBefore(tb, pc.nextSibling);
+              } catch (e) { }
+            }
+            window.__oberegToolbarSpeed = function(lbl) {
+              try { var el = document.querySelector('#oberegToolbar .obereg-speed'); if (el && lbl) { el.textContent = lbl; } } catch (e) { }
+            };
+            window.__oberegPipPanicReset = function() {
+              try {
+                var strays = document.querySelectorAll('[data-obereg-piphid]');
+                for (var i = 0; i < strays.length; i++) {
+                  try { strays[i].style.removeProperty('display'); } catch (e) { }
+                  try { strays[i].removeAttribute('data-obereg-piphid'); } catch (e) { }
+                }
+              } catch (e) { }
+            };
             function reportLayout(tag) {
               try {
                 var h = host();
@@ -2400,6 +2550,7 @@ object PlayerSession {
               hideChips();
               hideTopPlate();
               hideAdChip();
+              ensureToolbar();
               try {
                 var pc0 = document.getElementById('player-container-id');
                 if (pc0) { pc0.style.setProperty('top', '0', 'important'); }
@@ -2421,6 +2572,7 @@ object PlayerSession {
                   hideChips();
                   hideTopPlate();
                   hideAdChip();
+                  ensureToolbar();
                 }
                 if (LEVEL < 2) {
                   // Мягкая подтяжка: в первые 15 секунд после входа/свёртки,

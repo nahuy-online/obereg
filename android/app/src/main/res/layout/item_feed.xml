@@ -8,12 +8,32 @@
     android:paddingTop="7dp"
     android:paddingBottom="7dp">
 
-    <ImageView
-        android:id="@+id/feedThumb"
+    <FrameLayout
         android:layout_width="150dp"
-        android:layout_height="84dp"
-        android:contentDescription="@string/feed_thumb_description"
-        android:scaleType="centerCrop" />
+        android:layout_height="84dp">
+
+        <ImageView
+            android:id="@+id/feedThumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/feed_thumb_description"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/feedQueueBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_icon"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="+"
+            android:textColor="#EEF1F6"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

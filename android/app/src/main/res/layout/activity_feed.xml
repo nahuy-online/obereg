@@ -292,47 +292,4 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
-
-    <!-- Лёгкие чипы под видео: скорость и «В окне» (перенесены из верхней полосы) -->
-    <LinearLayout
-        android:id="@+id/floatBar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="240dp"
-        android:layout_marginEnd="10dp"
-        android:orientation="horizontal"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/btnFloatSpeed"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_icon"
-            android:clickable="true"
-            android:focusable="true"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="1×"
-            android:textColor="#EEF1F6"
-            android:textSize="12.5sp" />
-
-        <TextView
-            android:id="@+id/btnFloatPip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_icon"
-            android:clickable="true"
-            android:focusable="true"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="▢ В окне"
-            android:textColor="#7AA2FF"
-            android:textSize="12.5sp" />
-    </LinearLayout>
 </FrameLayout>

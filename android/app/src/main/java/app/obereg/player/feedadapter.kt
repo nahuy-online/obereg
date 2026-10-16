@@ -32,6 +32,20 @@ class FeedAdapter(private val rows: List<FeedCodec.FeedRow>) : BaseAdapter() {
         val sub = view.findViewById<TextView>(R.id.feedRowSub)
         val badge = view.findViewById<TextView>(R.id.feedRowBadge)
         val thumb = view.findViewById<ImageView>(R.id.feedThumb)
+        val queueBtn = view.findViewById<TextView>(R.id.feedQueueBtn)
+
+        val vid = row.tag
+        val isVideo = vid.length == 11 && !vid.contains(":")
+        queueBtn.visibility = if (isVideo) View.VISIBLE else View.GONE
+        queueBtn.setOnClickListener {
+            val n = PlayerSession.addToQueue(parent.context, vid, row.title ?: vid)
+            android.widget.Toast.makeText(
+                parent.context,
+                "В очередь: " + (row.title ?: vid).take(40) + " (всего " + n + ")",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            DiagLog.add("лента: в очередь — " + vid + " (всего " + n + ")")
+        }
 
         title.text = row.title ?: row.label
         sub.text = row.sub.orEmpty()

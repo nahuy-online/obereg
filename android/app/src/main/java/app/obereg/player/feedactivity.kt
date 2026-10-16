@@ -57,11 +57,6 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
     private lateinit var playerPane: android.view.View
     private lateinit var engineHolder: android.widget.FrameLayout
     private lateinit var engineStatus: TextView
-    private lateinit var floatBar: android.view.View
-    private lateinit var btnFloatSpeed: TextView
-
-    /** Последний известный низ кадра видео (пиксели экрана) — позиция лёгких чипов. */
-    private var lastVideoBottomPx = 0
 
     /** Фоны панели плеера до ухода в мини-вид (после — возвращаем). */
     private var paneBgSaved: android.graphics.drawable.Drawable? = null
@@ -123,11 +118,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         playerPane = findViewById(R.id.playerPane)
         engineHolder = findViewById(R.id.engineHolder)
         engineStatus = findViewById(R.id.engineStatus)
-        floatBar = findViewById(R.id.floatBar)
-        btnFloatSpeed = findViewById(R.id.btnFloatSpeed)
-        btnFloatSpeed.text = speedLabel(PlayerSession.speed)
-        btnFloatSpeed.setOnClickListener { showSettings() }
-        findViewById<TextView>(R.id.btnFloatPip).setOnClickListener { enterPip() }
+        PlayerSession.loadQueue(this)
         strayHandler.postDelayed(strayWatch, 9_000)
         miniBar.setOnClickListener { expandPlayer() }
 
@@ -228,7 +219,6 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
 
     override fun onDestroy() {
         PlayerSession.stopPlayerWatch()
-        PlayerSession.onLayoutReport = null
         if (PlayerSession.onReleased === releaseWatcher) {
             PlayerSession.onReleased = null
         }
@@ -301,15 +291,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         exitMiniView()
         PlayerSession.host = this
         PlayerSession.lastStatus = { text -> runOnUiThread { engineStatus.text = text } }
-        btnFloatSpeed.text = speedLabel(PlayerSession.speed)
-        PlayerSession.onLayoutReport = { r -> runOnUiThread { maybePlaceFloatBar(r) } }
-        if (lastVideoBottomPx > 0) {
-            placeFloatBarAt(lastVideoBottomPx)
-        } else {
-            // Пока страница не прислала отчёт — обычный кадр 16:9: низ примерно на этой высоте.
-            val dens = resources.displayMetrics.density
-            placeFloatBarAt((resources.displayMetrics.widthPixels * 9f / 16f).toInt() + (6 * dens).toInt())
-        }
+        PlayerSession.panicResetPip()
         PlayerSession.open(this, videoId, title)
         PlayerSession.attachTo(engineHolder)
         PlayerSession.setAppForeground(true)
@@ -322,7 +304,6 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
      *  и уменьшения на этом телефоне пропадала картинка) — страница сама усыхает
      *  в прямоугольник миниатюры, а обрезка вывода показывает ровно этот прямоугольник. */
     private fun applyMiniView() {
-        floatBar.visibility = android.view.View.GONE
         engineStatus.visibility = android.view.View.GONE
         if (paneBgSaved == null) {
             paneBgSaved = playerPane.background ?: android.graphics.drawable.ColorDrawable(0xFF0B0D11.toInt())
@@ -366,7 +347,7 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
         PlayerSession.attachedView()?.clipBounds = null
         engineStatus.visibility = android.view.View.VISIBLE
         restorePaneBackgrounds()
-        if (playerMode) { floatBar.visibility = android.view.View.VISIBLE }
+        PlayerSession.panicResetPip()
         DiagLog.add("движок-плеер: мини — фон панели возвращён")
     }
 
@@ -374,30 +355,6 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
     private fun restorePaneBackgrounds() {
         playerPane.background = paneBgSaved ?: android.graphics.drawable.ColorDrawable(0xFF0B0D11.toInt())
         engineHolder.background = holderBgSaved ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK)
-    }
-
-    /** Ставит лёгкие чипы скорости и «В окне» сразу под кадром видео. */
-    private fun placeFloatBarAt(px: Int) {
-        lastVideoBottomPx = px
-        val lp = floatBar.layoutParams as android.widget.FrameLayout.LayoutParams
-        lp.topMargin = px
-        floatBar.layoutParams = lp
-        if (playerMode && !PlayerSession.pipActive) {
-            floatBar.visibility = android.view.View.VISIBLE
-        } else {
-            floatBar.visibility = android.view.View.GONE
-        }
-    }
-
-    /** Разбор отчёта вёрстки: «видео:H@T» → низ кадра, и ставим под ним чипы. */
-    private fun maybePlaceFloatBar(report: String) {
-        val m = Regex("видео:(\\d+)@(-?\\d+)").find(report) ?: return
-        val h = m.groupValues[1].toIntOrNull() ?: return
-        val t = m.groupValues[2].toIntOrNull() ?: return
-        val bottomCss = h + t
-        if (bottomCss <= 40 || bottomCss > 3000) { return }
-        val dens = resources.displayMetrics.density
-        placeFloatBarAt((bottomCss * dens).toInt() + (6 * dens).toInt())
     }
 
     private fun collapsePlayer() {
@@ -429,6 +386,30 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
     override fun onMinimizeRequested() {
         runOnUiThread { collapsePlayer() }
     }
+
+    override fun onSpeedRequested() {
+        runOnUiThread { showSettings() }
+    }
+
+    override fun onPipRequested() {
+        runOnUiThread { enterPip() }
+    }
+
+    override fun onQueueRequested() {
+        runOnUiThread {
+            val id = PlayerSession.videoId
+            if (id.isBlank()) { return@runOnUiThread }
+            val n = PlayerSession.addToQueue(this, id, PlayerSession.title)
+            android.widget.Toast.makeText(this, "В очередь: " + PlayerSession.title.take(40) + " (всего " + n + ")", android.widget.Toast.LENGTH_SHORT).show()
+            DiagLog.add("движок-плеер: в очередь — " + id + " (всего " + n + ")")
+        }
+    }
+
+    override fun onQueueNext(id: String, title: String) {
+        runOnUiThread { showPlayerPane(id, title) }
+    }
+
+    override fun canAutoAdvance(): Boolean = playerMode
 
     /** Системное окно «картинка-в-картинке» — отдельная кнопка. В окошке — только ролик и play/pause. */
     private fun enterPip() {
@@ -481,7 +462,6 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
             if (isInPictureInPictureMode) "движок-плеер: в окне" else "движок-плеер: развёрнут",
         )
         engineStatus.visibility = if (isInPictureInPictureMode) android.view.View.GONE else android.view.View.VISIBLE
-        floatBar.visibility = android.view.View.GONE
         if (isInPictureInPictureMode) {
             PlayerSession.markPip(this)
             PlayerSession.keepAlive()
@@ -494,7 +474,8 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
             PlayerSession.clearPip(this)
             PlayerSession.applyPipLayout(false)
             PlayerSession.nudgeSurface()
-            if (playerMode && lastVideoBottomPx > 0) { placeFloatBarAt(lastVideoBottomPx) }
+            PlayerSession.clearMiniTouchBlock()
+            PlayerSession.panicResetPip()
         }
     }
 
@@ -507,6 +488,8 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
             "Оживить видео (если чёрный экран)",
             "Обновить страницу (с этого места)",
             "Перезагрузить страницу",
+            "Играть следующую из очереди (" + PlayerSession.queueSize() + ")",
+            "Очистить очередь",
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Плеер")
@@ -514,7 +497,6 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
                 when {
                     which < rates.size -> {
                         PlayerSession.applySpeed(this, rates[which])
-                        btnFloatSpeed.text = speedLabel(rates[which])
                         DiagLog.add("движок-плеер: скорость ${speedLabel(rates[which])}")
                     }
                     which == rates.size -> {
@@ -540,6 +522,15 @@ class FeedActivity : AppCompatActivity(), PlayerSession.Host, PlayerSession.PipH
                     which == rates.size + 3 -> {
                         PlayerSession.reload()
                         engineStatus.text = "движок-плеер: перезагрузка"
+                    }
+                    which == rates.size + 4 -> {
+                        if (!PlayerSession.playNextFromQueue(this)) {
+                            android.widget.Toast.makeText(this, "Очередь пуста", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    which == rates.size + 5 -> {
+                        PlayerSession.clearQueue(this)
+                        android.widget.Toast.makeText(this, "Очередь очищена", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
             }
